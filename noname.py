@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from io import TextIOWrapper
 import pathlib
 import dataclasses
 import typing
@@ -46,6 +47,13 @@ class IntLiteral(Expr):
 @dataclasses.dataclass
 class Var(Expr):
     name: str
+
+
+@dataclasses.dataclass
+class BinOp(Expr):
+    lhs: Expr
+    op: str
+    rhs: Expr
 
 
 @Parser
@@ -94,8 +102,27 @@ def variable(s: Source) -> Var:
 
 
 @Parser
+def binop(s: Source) -> BinOp:
+    lhs = integer(s).unwrap()
+    ws(s).unwrap()
+
+    op = char("+")(s).unwrap()
+    ws(s).unwrap()
+
+    rhs = integer(s).unwrap()
+    return BinOp(lhs, op, rhs)
+
+
+@Parser
 def expr(s: Source) -> Expr:
-    choices: list[Parser[Expr]] = typing.cast(list[Parser[Expr]], [integer, variable])
+    choices: list[Parser[Expr]] = typing.cast(
+        list[Parser[Expr]],
+        [
+            binop,
+            integer,
+            variable,
+        ],
+    )
     expr_parser = choice(*choices)
     expr = expr_parser(s)
     return expr.unwrap()
@@ -181,47 +208,62 @@ def parse(filepath: pathlib.Path):
     return f
 
 
-def codegen(filename: str, fn: Function):
-    output = open("program.s", "w")
+class Codegen:
+    def __init__(self):
+        self.var_offsets = {}
+        self.last_offset = -4
 
-    output.write(f'\t.file\t"{filename}"\n')
-    output.write("\t.text\n")  # code section
-    output.write("\t.globl\tmain\n")  # main accessible by linker
-    output.write("\t.type\tmain, @function\n")  # main is function, for linker
-
-    output.write(f"{fn.name}:\n")  # label where function starts
-    # save %rbp value in stack, to restore it in the end
-    output.write("\tpushq\t%rbp\n")
-    # establish new stack frame for `main`
-    output.write("\tmovq\t%rsp, %rbp\n")
-
-    var_offsets = {}
-    last_offset = -4
-
-    for statement in fn.block.statements:
-        match statement:
-            case Return(IntLiteral(i)):
+    def codegen_expr(self, output: TextIOWrapper, expr: Expr):
+        match expr:
+            case IntLiteral(i):
                 output.write(f"\tmovl\t${i}, %eax\n")
-            case Return(Var(name)):
-                output.write(f"\tmovl\t{var_offsets[name]}(%rbp), %eax\n")
-            case DeclVariable(name, IntLiteral(i)):
-                var_offsets[name] = last_offset
-                last_offset -= 4
-                output.write(f"\tmovl\t${i}, {var_offsets[name]}(%rbp)\n")
+                return "%eax"
+            case Var(name):
+                return f"{self.var_offsets[name]}(%rbp)"
+            case BinOp(IntLiteral(lhs), "+", IntLiteral(rhs)):
+                output.write(f"\tmovl\t${lhs}, %eax\n")
+                output.write(f"\taddl\t${rhs}, %eax\n")
+                return "%eax"
             case other:
-                raise Exception(f"Unexpected stmt {other}")
+                raise Exception(f"Unexpected Expr {other}")
 
-    output.write("\tpopq\t%rbp\n")  # restore previous base pointer from stack
-    output.write("\tret\n")  # return control to the caller
+    def codegen(self, filename: str, fn: Function):
+        output = open("program.s", "w")
 
-    # calculate main function size for debugging
-    # ".-main" .(current place) -(minus) main(label)
-    output.write("\t.size\tmain, .-main\n")
-    output.write('\t.ident\t"NONAME"\n')  # compiler metadata
-    # no execution stack is needed
-    output.write('\t.section\t.note.GNU-stack,"",@progbits\n')
+        output.write(f'\t.file\t"{filename}"\n')
+        output.write("\t.text\n")  # code section
+        output.write("\t.globl\tmain\n")  # main accessible by linker
+        output.write("\t.type\tmain, @function\n")  # main is function, for linker
 
-    output.close()
+        output.write(f"{fn.name}:\n")  # label where function starts
+        # save %rbp value in stack, to restore it in the end
+        output.write("\tpushq\t%rbp\n")
+        # establish new stack frame for `main`
+        output.write("\tmovq\t%rsp, %rbp\n")
+
+        for statement in fn.block.statements:
+            match statement:
+                case Return(expr):
+                    value = self.codegen_expr(output, expr)
+                    output.write(f"\tmovl\t{value}, %eax\n")
+                case DeclVariable(name, IntLiteral(i)):
+                    self.var_offsets[name] = self.last_offset
+                    self.last_offset -= 4
+                    output.write(f"\tmovl\t${i}, {self.var_offsets[name]}(%rbp)\n")
+                case other:
+                    raise Exception(f"Unexpected stmt {other}")
+
+        output.write("\tpopq\t%rbp\n")  # restore previous base pointer from stack
+        output.write("\tret\n")  # return control to the caller
+
+        # calculate main function size for debugging
+        # ".-main" .(current place) -(minus) main(label)
+        output.write("\t.size\tmain, .-main\n")
+        output.write('\t.ident\t"NONAME"\n')  # compiler metadata
+        # no execution stack is needed
+        output.write('\t.section\t.note.GNU-stack,"",@progbits\n')
+
+        output.close()
 
 
 def main():
@@ -234,7 +276,8 @@ def main():
     fn = parse(input_file_path)
     print(fn)
 
-    codegen(input_file_path.name, fn)
+    codegen = Codegen()
+    codegen.codegen(input_file_path.name, fn)
 
 
 if __name__ == "__main__":
