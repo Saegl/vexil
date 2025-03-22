@@ -5,6 +5,8 @@ from io import TextIOWrapper
 import pathlib
 import dataclasses
 import typing
+import subprocess
+from pprint import pprint
 from pcomb import Parser, char, choice, Source, keyword, ws, ws1
 
 
@@ -269,15 +271,30 @@ class Codegen:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("file", type=pathlib.Path)
+    parser.add_argument("--ast", action="store_true")
+    parser.add_argument("--asm", action="store_true")
+    parser.add_argument("--run", action="store_true")
     args = parser.parse_args()
 
     input_file_path = pathlib.Path(args.file)
 
     fn = parse(input_file_path)
-    print(fn)
+    if args.ast:
+        print("\n===AST===")
+        pprint(fn)
 
     codegen = Codegen()
     codegen.codegen(input_file_path.name, fn)
+
+    if args.asm:
+        print("\n===ASM===")
+        print(pathlib.Path("program.s").read_text())
+
+    if args.run:
+        print("\n===RUN===")
+        subprocess.run(["gcc", "program.s"])
+        out = subprocess.run(["./a.out"])
+        print(out.returncode)
 
 
 if __name__ == "__main__":
