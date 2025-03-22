@@ -104,7 +104,7 @@ def binop(s: Source) -> BinOp:
     lhs = integer(s).unwrap()
     ws(s).unwrap()
 
-    op = char("+")(s).unwrap()
+    op = choice(char("+"), char("-"), char("*"))(s).unwrap()
     ws(s).unwrap()
 
     rhs = integer(s).unwrap()

@@ -21,9 +21,15 @@ class Codegen:
                 return "%eax"
             case parser.Var(name):
                 return f"{self.var_offsets[name]}(%rbp)"
-            case parser.BinOp(parser.IntLiteral(lhs), "+", parser.IntLiteral(rhs)):
+            case parser.BinOp(parser.IntLiteral(lhs), op, parser.IntLiteral(rhs)):
+                ops = {
+                    "+": "addl",
+                    "-": "subl",
+                    "*": "imull",
+                }
+                op_cmd = ops[op]
                 output.write(f"\tmovl\t${lhs}, %eax\n")
-                output.write(f"\taddl\t${rhs}, %eax\n")
+                output.write(f"\t{op_cmd}\t${rhs}, %eax\n")
                 return "%eax"
             case other:
                 raise Exception(f"Unexpected Expr {other}")
