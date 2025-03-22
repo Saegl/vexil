@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import argparse
 import pathlib
 import dataclasses
-import string
+import typing
+from pcomb import Parser, char, choice, Source, keyword, ws, ws1
 
 
 @dataclasses.dataclass
@@ -15,105 +18,210 @@ class Function:
     block: Block
 
 
-class Source:
-    def __init__(self, source):
-        self.source = source
-        self.i = 0
-
-    def char(self):
-        return self.source[self.i]
+class Statement:
+    pass
 
 
-def parse_ws(s: Source):
-    while s.i < len(s.source) and s.char() in [" ", "\t"]:
-        s.i += 1
+@dataclasses.dataclass
+class Return(Statement):
+    value: "Expr"
 
 
-def parse_char(s: Source):
-    char = s.char()
-    s.i += 1
-    return char
+@dataclasses.dataclass
+class DeclVariable(Statement):
+    name: str
+    expr: Expr
 
 
-def parse_integer(s: Source) -> int:
+@dataclasses.dataclass
+class Expr:
+    pass
+
+
+@dataclasses.dataclass
+class IntLiteral(Expr):
+    val: int
+
+
+@dataclasses.dataclass
+class Var(Expr):
+    name: str
+
+
+@Parser
+def newline(s: Source):
+    parser = char("\n")
+    parser(s).unwrap()
+
+
+@Parser
+def fn_params(s: Source):
+    left_paren = char("(")
+    left_paren(s).unwrap()
+
+    right_paren = char(")")
+    right_paren(s).unwrap()
+
+
+@Parser
+def integer(s: Source) -> IntLiteral:
     ans = ""
-    while s.i < len(s.source) and s.char() in string.digits:
-        ans += s.char()
-        s.i += 1
-    return int(ans)
+    while "0" <= s.peek() <= "9":
+        ans += s.peek()
+        s.pos += 1
+
+    return IntLiteral(int(ans))
 
 
-def parse_indent(s: Source) -> str:
+@Parser
+def indent(s: Source) -> str:
     ans = ""
-    while s.i < len(s.source) and s.char() in string.ascii_letters:
-        ans += s.char()
-        s.i += 1
+    while "a" <= s.peek() <= "z":
+        ans += s.peek()
+        s.pos += 1
+
     return ans
 
 
-def parse_newline(s: Source):
-    char = parse_char(s)
-    assert char == "\n"
+@Parser
+def variable(s: Source) -> Var:
+    ans = ""
+    while "a" <= s.peek() <= "z":
+        ans += s.peek()
+        s.pos += 1
+
+    return Var(ans)
 
 
-def parse_params(s: Source):
-    left_paren = s.char()
-    assert left_paren == "("
-    s.i += 1
-
-    right_paren = s.char()
-    assert right_paren == ")"
-    s.i += 1
+@Parser
+def expr(s: Source) -> Expr:
+    choices: list[Parser[Expr]] = typing.cast(list[Parser[Expr]], [integer, variable])
+    expr_parser = choice(*choices)
+    expr = expr_parser(s)
+    return expr.unwrap()
 
 
-def parse_statement(s) -> int:
-    return_keyword = parse_indent(s)
-    assert return_keyword == "return"
-    parse_ws(s)
-    integer = parse_integer(s)
-    parse_ws(s)
-    parse_newline(s)
-    parse_ws(s)
-    return integer
+@Parser
+def return_stmt(s: Source) -> Return:
+    keyword("return")(s).unwrap()
+    ws1(s).unwrap()
+    value = expr(s).unwrap()
+    return Return(value)
 
 
-def parse_block(s: Source) -> Block:
-    left_curly = parse_char(s)
-    assert left_curly == "{"
+@Parser
+def decl_stmt(s: Source) -> DeclVariable:
+    keyword("let")(s).unwrap()
+    ws1(s).unwrap()
 
-    new_line = parse_char(s)
-    assert new_line == "\n"
+    varname = indent(s).unwrap()
+    ws1(s).unwrap()
+
+    char("=")(s).unwrap()
+    ws1(s).unwrap()
+
+    e = expr(s).unwrap()
+
+    return DeclVariable(name=varname, expr=e)
+
+
+@Parser
+def stmt(s: Source) -> Statement:
+    choices: list[Parser[Statement]] = typing.cast(
+        list[Parser[Statement]], [return_stmt, decl_stmt]
+    )
+    stmt_parser = choice(*choices)
+    stmt = stmt_parser(s)
+    out = stmt.unwrap()
+    ws(s).unwrap()
+    newline(s).unwrap()
+    return out
+
+
+@Parser
+def block(s: Source) -> Block:
+    char("{")(s).unwrap()
+    newline(s).unwrap()
 
     statements = []
 
-    parse_ws(s)
-    statements.append(parse_statement(s))
-    parse_ws(s)
+    while True:
+        ws(s).unwrap()
+        statement = stmt(s)
+        if statement.is_succ():
+            statements.append(statement.unwrap())
+        else:
+            break
 
-    right_curly = parse_char(s)
-    assert right_curly == "}"
+    ws(s).unwrap()
+    char("}")(s).unwrap()
 
     return Block(statements)
 
 
-def parse_function(s: Source):
-    fn_indent = parse_indent(s)
-    assert fn_indent == "fn"
-    parse_ws(s)
+@Parser
+def function(s: Source):
+    keyword("fn")(s).unwrap()
+    ws(s).unwrap()
 
-    name = parse_indent(s)
-    parse_ws(s)
-    parse_params(s)
-    parse_ws(s)
-    block = parse_block(s)
+    name = indent(s).unwrap()
+    ws(s).unwrap()
 
-    return Function(name=name, block=block)
+    fn_params(s)
+    ws(s).unwrap()
+
+    fn_block = block(s).unwrap()
+
+    return Function(name=name, block=fn_block)
 
 
 def parse(filepath: pathlib.Path):
     source = filepath.read_text()
-    f = parse_function(Source(source))
+    f = function(Source(source)).unwrap()
     return f
+
+
+def codegen(filename: str, fn: Function):
+    output = open("program.s", "w")
+
+    output.write(f'\t.file\t"{filename}"\n')
+    output.write("\t.text\n")  # code section
+    output.write("\t.globl\tmain\n")  # main accessible by linker
+    output.write("\t.type\tmain, @function\n")  # main is function, for linker
+
+    output.write(f"{fn.name}:\n")  # label where function starts
+    # save %rbp value in stack, to restore it in the end
+    output.write("\tpushq\t%rbp\n")
+    # establish new stack frame for `main`
+    output.write("\tmovq\t%rsp, %rbp\n")
+
+    var_offsets = {}
+    last_offset = -4
+
+    for statement in fn.block.statements:
+        match statement:
+            case Return(IntLiteral(i)):
+                output.write(f"\tmovl\t${i}, %eax\n")
+            case Return(Var(name)):
+                output.write(f"\tmovl\t{var_offsets[name]}(%rbp), %eax\n")
+            case DeclVariable(name, IntLiteral(i)):
+                var_offsets[name] = last_offset
+                last_offset -= 4
+                output.write(f"\tmovl\t${i}, {var_offsets[name]}(%rbp)\n")
+            case other:
+                raise Exception(f"Unexpected stmt {other}")
+
+    output.write("\tpopq\t%rbp\n")  # restore previous base pointer from stack
+    output.write("\tret\n")  # return control to the caller
+
+    # calculate main function size for debugging
+    # ".-main" .(current place) -(minus) main(label)
+    output.write("\t.size\tmain, .-main\n")
+    output.write('\t.ident\t"NONAME"\n')  # compiler metadata
+    # no execution stack is needed
+    output.write('\t.section\t.note.GNU-stack,"",@progbits\n')
+
+    output.close()
 
 
 def main():
@@ -124,29 +232,9 @@ def main():
     input_file_path = pathlib.Path(args.file)
 
     fn = parse(input_file_path)
+    print(fn)
 
-    output = open("program.s", "w")
-    output.write(f'\t.file\t"{input_file_path.name}"\n')
-    output.write("\t.text\n")  # code section
-    output.write("\t.globl\tmain\n")  # main accessible by linker
-    output.write("\t.type\tmain, @function\n")  # main is function, for linker
-    output.write("main:\n")  # label where function starts
-    # save %rbp value in stack, to restore it in the end
-    output.write("\tpushq\t%rbp\n")
-    # establish new stack frame for `main`
-    output.write("\tmovq\t%rsp, %rbp\n")
-    output.write(
-        f"\tmovl\t${fn.block.statements[0]}, %eax\n"
-    )  # move 42 to return register
-    output.write("\tpopq\t%rbp\n")  # restore previous base pointer from stack
-    output.write("\tret\n")  # return control to the caller
-    # calculate main function size for debugging
-    # ".-main" .(current place) -(minus) main(label)
-    output.write("\t.size\tmain, .-main\n")
-    output.write('\t.ident\t"NONAME"\n')  # compiler metadata
-    # no execution stack is needed
-    output.write('\t.section\t.note.GNU-stack,"",@progbits\n')
-    output.close()
+    codegen(input_file_path.name, fn)
 
 
 if __name__ == "__main__":
