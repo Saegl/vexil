@@ -87,7 +87,7 @@ class Codegen:
         # calculate main function size for debugging
         # ".-main" .(current place) -(minus) main(label)
         output.write("\t.size\tmain, .-main\n")
-        output.write('\t.ident\t"NONAME"\n')  # compiler metadata
+        output.write('\t.ident\t"VEXIL"\n')  # compiler metadata
         # no execution stack is needed
         output.write('\t.section\t.note.GNU-stack,"",@progbits\n')
 

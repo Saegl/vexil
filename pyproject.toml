@@ -1,7 +1,7 @@
 [project]
-name = "noname"
+name = "vexil"
 version = "0.1.0"
-description = "Add your description here"
+description = "Programming language"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []

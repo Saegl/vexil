@@ -3,7 +3,7 @@ from parser import parse
 
 
 def test_examples():
-    examples_dir = pathlib.Path("noname_examples/")
+    examples_dir = pathlib.Path("vexil_examples/")
 
-    for file in examples_dir.rglob("*.noname"):
+    for file in examples_dir.rglob("*.vexil"):
         parse(file)
