@@ -7,7 +7,7 @@ from pcomb import Parser, char, choice, Source, keyword, ws, ws1
 
 @dataclasses.dataclass
 class Block:
-    statements: list
+    statements: list[Statement]
 
 
 @dataclasses.dataclass
@@ -55,13 +55,13 @@ class BinOp(Expr):
 
 
 @Parser
-def newline(s: Source):
+def newline(s: Source) -> None:
     parser = char("\n")
     parser(s).unwrap()
 
 
 @Parser
-def fn_params(s: Source):
+def fn_params(s: Source) -> None:
     left_paren = char("(")
     left_paren(s).unwrap()
 
@@ -100,15 +100,67 @@ def variable(s: Source) -> Var:
 
 
 @Parser
-def binop(s: Source) -> BinOp:
-    lhs = integer(s).unwrap()
+def grouping(s: Source) -> Expr:
+    char("(")(s).unwrap()
+    ws(s).unwrap()
+    value = expr(s).unwrap()
+    char(")")(s).unwrap()
+    return value
+
+
+@Parser
+def atom(s: Source) -> Expr:
+    choices: list[Parser[Expr]] = typing.cast(
+        list[Parser[Expr]],
+        [
+            grouping,
+            integer,
+            variable,
+        ],
+    )
+    value = choice(*choices)(s).unwrap()
+
+    return value
+
+
+@Parser
+def mul_op(s: Source) -> Expr:
+    current = atom(s).unwrap()
     ws(s).unwrap()
 
-    op = choice(char("+"), char("-"), char("*"))(s).unwrap()
+    while True:
+        op = choice(char("*"))(s)
+        if not op.is_succ():
+            break
+
+        ws(s).unwrap()
+
+        rhs = atom(s).unwrap()
+        ws(s).unwrap()
+
+        current = BinOp(current, op.unwrap(), rhs)
+
+    return current
+
+
+@Parser
+def add_op(s: Source) -> Expr:
+    current = mul_op(s).unwrap()
     ws(s).unwrap()
 
-    rhs = integer(s).unwrap()
-    return BinOp(lhs, op, rhs)
+    while True:
+        op = choice(char("+"), char("-"), char("*"))(s)
+        if not op.is_succ():
+            break
+
+        ws(s).unwrap()
+
+        rhs = mul_op(s).unwrap()
+        ws(s).unwrap()
+
+        current = BinOp(current, op.unwrap(), rhs)
+
+    return current
 
 
 @Parser
@@ -116,9 +168,7 @@ def expr(s: Source) -> Expr:
     choices: list[Parser[Expr]] = typing.cast(
         list[Parser[Expr]],
         [
-            binop,
-            integer,
-            variable,
+            add_op,
         ],
     )
     expr_parser = choice(*choices)
@@ -185,7 +235,7 @@ def block(s: Source) -> Block:
 
 
 @Parser
-def function(s: Source):
+def function(s: Source) -> Function:
     keyword("fn")(s).unwrap()
     ws(s).unwrap()
 
@@ -200,7 +250,7 @@ def function(s: Source):
     return Function(name=name, block=fn_block)
 
 
-def parse(filepath: pathlib.Path):
+def parse(filepath: pathlib.Path) -> Function:
     source = filepath.read_text()
     f = function(Source(source)).unwrap()
     return f
