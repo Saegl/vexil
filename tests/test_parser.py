@@ -16,6 +16,7 @@ from parser import (
     Program,
     ReturnStmt,
     Var,
+    WhileStmt,
     parse_program,
 )
 
@@ -101,6 +102,23 @@ def test_parse_match_and_if() -> None:
     ret_stmt = if_stmt.then_block.statements[0]
     assert isinstance(ret_stmt, ReturnStmt)
     assert isinstance(ret_stmt.value, MatchExpr)
+
+
+def test_parse_while() -> None:
+    src = (
+        "def main() {\n"
+        "    let x = 0\n"
+        "    while x < 10 {\n"
+        "        x = x + 1\n"
+        "    }\n"
+        "}\n"
+    )
+    ast = parse_program(src)
+    fn = ast.statements[0]
+    assert isinstance(fn, FuncDef)
+    while_stmt = fn.body.statements[1]
+    assert isinstance(while_stmt, WhileStmt)
+    assert while_stmt.body.statements
 
 
 def test_parse_assignment_expr() -> None:

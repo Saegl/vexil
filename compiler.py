@@ -35,6 +35,7 @@ from parser import (
     Unary,
     Var,
     VarPattern,
+    WhileStmt,
     WildcardPattern,
 )
 
@@ -148,6 +149,8 @@ class Compiler:
                 self.var_types[stmt.name] = slot_type
             elif isinstance(stmt, IfStmt):
                 self.compile_if(stmt)
+            elif isinstance(stmt, WhileStmt):
+                self.compile_while(stmt)
             elif isinstance(stmt, ExprStmt):
                 self.compile_expr(stmt.expr)
             else:
@@ -162,6 +165,26 @@ class Compiler:
             with else_block:
                 if stmt.else_block is not None:
                     self.compile_block(stmt.else_block)
+
+    def compile_while(self, stmt: WhileStmt) -> None:
+        assert self.builder is not None
+        func = self.builder.function
+        cond_block = func.append_basic_block("while.cond")
+        body_block = func.append_basic_block("while.body")
+        end_block = func.append_basic_block("while.end")
+
+        self.builder.branch(cond_block)
+
+        self.builder.position_at_end(cond_block)
+        cond_val = self.coerce_i1(self.compile_expr(stmt.condition))
+        self.builder.cbranch(cond_val, body_block, end_block)
+
+        self.builder.position_at_end(body_block)
+        self.compile_block(stmt.body)
+        if not self.builder.block.is_terminated:
+            self.builder.branch(cond_block)
+
+        self.builder.position_at_end(end_block)
 
     def compile_expr(self, expr: Expr) -> ir.Value:
         return self.compile_expr_with_expected(expr, None)

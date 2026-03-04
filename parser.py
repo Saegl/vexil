@@ -99,6 +99,12 @@ class IfStmt(Stmt):
 
 
 @dataclass(frozen=True)
+class WhileStmt(Stmt):
+    condition: Expr
+    body: Block
+
+
+@dataclass(frozen=True)
 class ExprStmt(Stmt):
     expr: Expr
 
@@ -227,6 +233,7 @@ keywords = {
     "if",
     "else",
     "match",
+    "while",
     "import",
     "from",
     "export",
@@ -598,6 +605,14 @@ def if_stmt() -> Generator[Parser, Any, IfStmt]:
 
 
 @parsy.generate
+def while_stmt() -> Generator[Parser, Any, WhileStmt]:
+    yield kw("while")
+    cond = yield expr
+    body = yield block
+    return WhileStmt(cond, body)
+
+
+@parsy.generate
 def import_stmt() -> Generator[Parser, Any, ImportStmt]:
     yield kw("import")
     path = yield string_lit
@@ -645,6 +660,7 @@ stmt.become(
     | let_decl(True, False)
     | return_stmt
     | if_stmt
+    | while_stmt
     | expr_stmt
 )
 

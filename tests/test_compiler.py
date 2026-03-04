@@ -52,6 +52,27 @@ def test_compile_enum_match() -> None:
     assert "area" in ir_text
 
 
+def test_compile_while_loop() -> None:
+    src = (
+        "def fact(n: int) -> int {\n"
+        "    let result = 1\n"
+        "    let i = 1\n"
+        "    while i <= n {\n"
+        "        result = result * i\n"
+        "        i = i + 1\n"
+        "    }\n"
+        "    return result\n"
+        "}\n"
+        "def main() { print(fact(5)) }\n"
+    )
+    program = parse_program(src)
+    compiler = Compiler()
+    module = compiler.compile_program(program)
+    ir_text = str(module)
+    assert "while.cond" in ir_text
+    assert "while.body" in ir_text
+
+
 def test_compile_class_methods() -> None:
     src = (
         "class Counter { value: int\n"

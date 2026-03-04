@@ -15,6 +15,7 @@ stmt           = export_stmt
                | enum_def
                | return_stmt
                | if_stmt
+               | while_stmt
                | expr_stmt ;
 
 export_stmt    = "export" , ( func_def | class_def | enum_def | let_decl | const_decl ) ;
@@ -50,6 +51,7 @@ type_expr_list = type_expr , { "," , type_expr } ;
 
 return_stmt    = "return" , [ expr ] ;
 if_stmt        = "if" , expr , block , [ "else" , block ] ;
+while_stmt     = "while" , expr , block ;
 expr_stmt      = expr ;
 
 block          = "{" , stmt_list , "}" ;

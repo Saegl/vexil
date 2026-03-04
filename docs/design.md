@@ -182,7 +182,17 @@ enum Shape {
 }
 ```
 
-## 7. Pattern Matching
+## 7. While Loops
+
+```vexil
+while x < 10 {
+    x = x + 1
+}
+```
+
+The `while` loop repeats a block while the condition is true.
+
+## 8. Pattern Matching
 
 Pattern matching uses `match`.
 
@@ -202,7 +212,7 @@ Guarantees:
 - Destructuring
 - Wildcard `_`
 
-## 8. Error Handling
+## 9. Error Handling
 
 Vexil does not use exceptions. Errors are values.
 
@@ -242,7 +252,7 @@ panic("unexpected state")
 
 Used for programmer mistakes.
 
-## 9. Generics
+## 10. Generics
 
 Generics are supported in functions and classes.
 
@@ -274,7 +284,7 @@ Meaning: `T` must extend `Comparable`.
 
 No trait system is included.
 
-## 10. Core Types
+## 11. Core Types
 
 Primitive types: `int`, `float`, `bool`, `string`, `bytes`
 
@@ -299,7 +309,7 @@ enum Option<T> {
 }
 ```
 
-## 11. Modules
+## 12. Modules
 
 Every file is a module. There is no `module` keyword.
 
@@ -331,7 +341,7 @@ export def add(a: int, b: int) -> int {
 
 Non-exported symbols are private.
 
-## 12. Memory Model
+## 13. Memory Model
 
 Vexil uses garbage collection.
 
@@ -342,7 +352,7 @@ Characteristics:
 - No explicit pointer types
 - Objects allocated on heap
 
-## 13. Standard Library
+## 14. Standard Library
 
 Initial standard library modules:
 
@@ -357,7 +367,7 @@ Initial standard library modules:
 - `std.process`
 - `std.test`
 
-## 14. Tooling
+## 15. Tooling
 
 Compiler commands:
 
@@ -369,7 +379,7 @@ vexil fmt
 vexil lsp
 ```
 
-## 15. Example Program
+## 16. Example Program
 
 ```vexil
 from "math.vx" import add
@@ -380,7 +390,7 @@ def main() {
 }
 ```
 
-## 16. Language Summary
+## 17. Language Summary
 
 Vexil combines:
 
