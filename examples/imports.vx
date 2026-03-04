@@ -1,3 +1,9 @@
 # imports
-import "math.vx"
 from "math.vx" import add, sub
+
+def main() {
+    let x = add(10, 5)
+    let y = sub(10, 5)
+    print(x)
+    print(y)
+}
