@@ -8,6 +8,6 @@ def fact(n: int) -> int {
 }
 
 def main() {
-    let x = fact(6)
+    let x = fact(5)
     print(x)
 }
