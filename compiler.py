@@ -43,6 +43,7 @@ class Compiler:
         self.i32 = ir.IntType(32)
         self.i1 = ir.IntType(1)
         self.i8 = ir.IntType(8)
+        self.f64 = ir.DoubleType()
         self.builder: ir.IRBuilder | None = None
         self.function: ir.Function | None = None
         self.allocas: dict[str, ir.AllocaInstr] = {}
@@ -134,6 +135,8 @@ class Compiler:
                 return self.i1(int(expr.value))
             if isinstance(expr.value, int):
                 return self.i32(expr.value)
+            if isinstance(expr.value, float):
+                return self.f64(expr.value)
             if isinstance(expr.value, str):
                 return self.compile_string_literal(expr.value)
             raise NotImplementedError("only int/bool literals are supported")
@@ -145,8 +148,12 @@ class Compiler:
         if isinstance(expr, Unary):
             value = self.compile_expr(expr.expr)
             if expr.op == "-":
+                if value.type == self.f64:
+                    return self.builder.fneg(value)
                 return self.builder.neg(self.coerce_i32(value))
             if expr.op == "+":
+                if value.type == self.f64:
+                    return value
                 return self.coerce_i32(value)
             if expr.op == "!":
                 return self.builder.icmp_signed("==", self.coerce_i1(value), self.i1(0))
@@ -155,16 +162,34 @@ class Compiler:
             left = self.compile_expr(expr.left)
             right = self.compile_expr(expr.right)
             if expr.op == "+":
+                if left.type == self.f64 and right.type == self.f64:
+                    return self.builder.fadd(left, right)
                 return self.builder.add(self.coerce_i32(left), self.coerce_i32(right))
             if expr.op == "-":
+                if left.type == self.f64 and right.type == self.f64:
+                    return self.builder.fsub(left, right)
                 return self.builder.sub(self.coerce_i32(left), self.coerce_i32(right))
             if expr.op == "*":
+                if left.type == self.f64 and right.type == self.f64:
+                    return self.builder.fmul(left, right)
                 return self.builder.mul(self.coerce_i32(left), self.coerce_i32(right))
             if expr.op == "/":
+                if left.type == self.f64 and right.type == self.f64:
+                    return self.builder.fdiv(left, right)
                 return self.builder.sdiv(self.coerce_i32(left), self.coerce_i32(right))
             if expr.op == "%":
                 return self.builder.srem(self.coerce_i32(left), self.coerce_i32(right))
             if expr.op in {"<", "<=", ">", ">=", "==", "!="}:
+                if left.type == self.f64 and right.type == self.f64:
+                    op = {
+                        "<": "<",
+                        "<=": "<=",
+                        ">": ">",
+                        ">=": ">=",
+                        "==": "==",
+                        "!=": "!=",
+                    }[expr.op]
+                    return self.builder.fcmp_ordered(op, left, right)
                 op = {
                     "<": "<",
                     "<=": "<=",
@@ -194,6 +219,8 @@ class Compiler:
                 if not isinstance(callee, ir.Function):
                     if expr.func.name == "print":
                         callee = None
+                    elif expr.func.name == "read_line":
+                        callee = self.get_read_line()
                     else:
                         raise NotImplementedError(f"unknown function {expr.func.name}")
                 args = [self.compile_expr(arg.value) for arg in expr.args]
@@ -204,8 +231,15 @@ class Compiler:
                     if isinstance(arg.type, ir.PointerType) and arg.type.pointee == self.i8:
                         callee = self.get_print_str()
                         return self.builder.call(callee, [arg])
+                    if arg.type == self.f64:
+                        callee = self.get_print_float()
+                        return self.builder.call(callee, [arg])
                     callee = self.get_print_int()
                     return self.builder.call(callee, [self.coerce_i32(arg)])
+                if expr.func.name == "read_line":
+                    if args:
+                        raise NotImplementedError("read_line expects no arguments")
+                    return self.builder.call(callee, [])
                 if callee is None:
                     raise NotImplementedError(f"unknown function {expr.func.name}")
                 param_types = list(callee.function_type.args)
@@ -216,7 +250,9 @@ class Compiler:
                 ]
                 return self.builder.call(callee, coerced_args)
             if isinstance(expr.func, Member):
-                return self.compile_enum_constructor(expr.func, expr.args)
+                if self.is_enum_constructor(expr.func):
+                    return self.compile_enum_constructor(expr.func, expr.args)
+                return self.compile_method_call(expr.func, expr.args)
             raise NotImplementedError("only direct function calls are supported")
         if isinstance(expr, MatchExpr):
             return self.compile_match(expr)
@@ -243,6 +279,8 @@ class Compiler:
             return self.coerce_i32(value)
         if target == self.i1:
             return self.coerce_i1(value)
+        if target == self.f64 and value.type == self.i32:
+            return self.builder.sitofp(value, self.f64)
         if isinstance(target, ir.LiteralStructType) and value.type == target:
             return value
         raise NotImplementedError("unsupported type coercion")
@@ -252,6 +290,8 @@ class Compiler:
             return self.i32(0)
         if typ == self.i1:
             return self.i1(0)
+        if typ == self.f64:
+            return self.f64(0.0)
         if isinstance(typ, ir.LiteralStructType):
             elements = [self.i32(0) for _ in range(len(typ.elements))]
             return ir.Constant(typ, elements)
@@ -286,6 +326,36 @@ class Compiler:
             )
         return callee
 
+    def get_print_float(self) -> ir.Function:
+        callee = self.module.globals.get("print_float")
+        if not isinstance(callee, ir.Function):
+            callee = ir.Function(
+                self.module,
+                ir.FunctionType(self.i32, [self.f64]),
+                name="print_float",
+            )
+        return callee
+
+    def get_read_line(self) -> ir.Function:
+        callee = self.module.globals.get("read_line")
+        if not isinstance(callee, ir.Function):
+            callee = ir.Function(
+                self.module,
+                ir.FunctionType(self.i8.as_pointer(), []),
+                name="read_line",
+            )
+        return callee
+
+    def get_format1(self) -> ir.Function:
+        callee = self.module.globals.get("format1")
+        if not isinstance(callee, ir.Function):
+            callee = ir.Function(
+                self.module,
+                ir.FunctionType(self.i8.as_pointer(), [self.i8.as_pointer(), self.i8.as_pointer()]),
+                name="format1",
+            )
+        return callee
+
     def type_from_typeexpr(self, type_expr: TypeExpr | None) -> ir.Type:
         if type_expr is None:
             return self.i32
@@ -298,6 +368,8 @@ class Compiler:
                 return self.i1
             if type_expr.name == "string":
                 return self.i8.as_pointer()
+            if type_expr.name == "float":
+                return self.f64
             enum_info = self.enum_defs.get(type_expr.name)
             if enum_info is not None:
                 return enum_info.ir_type
@@ -320,6 +392,9 @@ class Compiler:
         info = EnumInfo(name=enum_def.name, ir_type=ir_type, variants=variants)
         self.enum_defs[enum_def.name] = info
         self.enum_types[ir_type] = info
+
+    def is_enum_constructor(self, member: "Member") -> bool:
+        return isinstance(member.obj, Var) and member.obj.name in self.enum_defs
 
     def compile_enum_constructor(self, member: "Member", args: list["CallArg"]) -> ir.Value:
         if not isinstance(member.obj, Var):
@@ -344,6 +419,18 @@ class Compiler:
             value = self.builder.insert_value(value, arg_val, idx + 1)
 
         return value
+
+    def compile_method_call(self, member: "Member", args: list["CallArg"]) -> ir.Value:
+        if member.name != "format":
+            raise NotImplementedError("only string.format is supported")
+        if len(args) != 1:
+            raise NotImplementedError("format expects exactly one argument")
+        receiver = self.compile_expr(member.obj)
+        arg = self.compile_expr(args[0].value)
+        if receiver.type != self.i8.as_pointer() or arg.type != self.i8.as_pointer():
+            raise NotImplementedError("format supports only string argument")
+        callee = self.get_format1()
+        return self.builder.call(callee, [receiver, arg])
 
     def compile_match(self, expr: MatchExpr) -> ir.Value:
         assert self.builder is not None

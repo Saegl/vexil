@@ -1,0 +1,7 @@
+# name input
+
+def main() {
+    print("What is your name?")
+    let name: string = read_line()
+    print("Hello, {}!".format(name))
+}

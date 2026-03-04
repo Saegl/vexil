@@ -1,0 +1,8 @@
+# floats
+
+def main() {
+    let x: float = 2.5
+    let y: float = 4.0
+    let z = x * y + 1.25
+    print(z)
+}
