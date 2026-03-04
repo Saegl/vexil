@@ -1,19 +1,27 @@
-# classes, fields, methods, inheritance
+# classes (int-only fields for now)
 
 class Counter {
     value: int
 
-    def init(value: int) {
+    def init(self, value: int) {
         self.value = value
     }
 
-    def inc(self) {
+    def inc(self) -> int {
         self.value = self.value + 1
+        return self.value
+    }
+
+    def dec(self) -> int {
+        self.value = self.value - 1
+        return self.value
     }
 }
 
-class FancyCounter(Counter) {
-    def dec(self) {
-        self.value = self.value - 1
-    }
+def main() {
+    let c = Counter(10)
+    c.inc()
+    c.inc()
+    c.dec()
+    print(c.value)
 }

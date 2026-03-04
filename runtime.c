@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 int print(int value) {
     printf("%d\n", value);
@@ -14,6 +15,10 @@ int print_str(const char *value) {
 int print_float(double value) {
     printf("%f\n", value);
     return 0;
+}
+
+void *vexil_alloc(int size) {
+    return malloc((size_t)size);
 }
 
 const char *read_line() {

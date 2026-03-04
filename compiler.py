@@ -34,11 +34,19 @@ from parser import (
     WildcardPattern,
     EnumDef,
     TypeExpr,
+    ClassDef,
+    FieldDecl,
 )
 
 
 class Compiler:
     def __init__(self) -> None:
+        binding.initialize_native_target()
+        binding.initialize_native_asmprinter()
+        target = binding.Target.from_default_triple()
+        self.target_machine = target.create_target_machine()
+        self.target_data = self.target_machine.target_data
+
         self.module = ir.Module(name="vexil")
         self.i32 = ir.IntType(32)
         self.i1 = ir.IntType(1)
@@ -52,21 +60,32 @@ class Compiler:
         self.enum_defs: dict[str, EnumInfo] = {}
         self.enum_types: dict[ir.Type, EnumInfo] = {}
         self.current_return_type: ir.Type | None = None
+        self.class_defs: dict[str, ClassInfo] = {}
+        self.class_types: dict[ir.Type, ClassInfo] = {}
 
     def compile_program(self, program: Program) -> ir.Module:
         for stmt in program.statements:
             if isinstance(stmt, EnumDef):
                 self.register_enum(stmt)
+            if isinstance(stmt, ClassDef):
+                self.register_class(stmt)
         for stmt in program.statements:
             if isinstance(stmt, FuncDef):
                 self.compile_function(stmt)
+            if isinstance(stmt, ClassDef):
+                self.compile_class_methods(stmt)
         return self.module
 
-    def compile_function(self, func: FuncDef) -> None:
+    def compile_function(self, func: FuncDef, *, method_of: ClassInfo | None = None) -> None:
         param_types = [self.type_from_typeexpr(p.type_expr) for p in func.params]
         ret_type = self.type_from_typeexpr(func.return_type)
+        if method_of is not None:
+            if not func.params or func.params[0].name != "self":
+                raise NotImplementedError("methods must take self as first parameter")
+            param_types[0] = method_of.ptr_type
         fn_type = ir.FunctionType(ret_type, param_types)
-        fn = ir.Function(self.module, fn_type, name=func.name)
+        fn_name = func.name if method_of is None else f"{method_of.name}__{func.name}"
+        fn = ir.Function(self.module, fn_type, name=fn_name)
         self.function = fn
         self.allocas = {}
         self.var_types = {}
@@ -145,6 +164,8 @@ class Compiler:
             if slot is None:
                 raise NotImplementedError(f"unknown variable {expr.name}")
             return self.builder.load(slot)
+        if isinstance(expr, Member):
+            return self.compile_member_load(expr)
         if isinstance(expr, Unary):
             value = self.compile_expr(expr.expr)
             if expr.op == "-":
@@ -203,16 +224,19 @@ class Compiler:
                 )
             raise NotImplementedError(f"binary op {expr.op}")
         if isinstance(expr, Assign):
-            if not isinstance(expr.target, Var):
-                raise NotImplementedError("assignment target must be a variable")
             value = self.compile_expr(expr.value)
-            slot = self.allocas.get(expr.target.name)
-            if slot is None:
-                slot = self.builder.alloca(value.type, name=expr.target.name)
-                self.allocas[expr.target.name] = slot
-                self.var_types[expr.target.name] = value.type
-            self.builder.store(self.coerce(value, value.type), slot)
-            return value
+            if isinstance(expr.target, Var):
+                slot = self.allocas.get(expr.target.name)
+                if slot is None:
+                    slot = self.builder.alloca(value.type, name=expr.target.name)
+                    self.allocas[expr.target.name] = slot
+                    self.var_types[expr.target.name] = value.type
+                self.builder.store(self.coerce(value, value.type), slot)
+                return value
+            if isinstance(expr.target, Member):
+                self.compile_member_store(expr.target, value)
+                return value
+            raise NotImplementedError("assignment target must be a variable or field")
         if isinstance(expr, Call):
             if isinstance(expr.func, Var):
                 callee = self.module.globals.get(expr.func.name)
@@ -221,6 +245,8 @@ class Compiler:
                         callee = None
                     elif expr.func.name == "read_line":
                         callee = self.get_read_line()
+                    elif expr.func.name in self.class_defs:
+                        return self.compile_class_constructor(expr.func.name, expr.args)
                     else:
                         raise NotImplementedError(f"unknown function {expr.func.name}")
                 args = [self.compile_expr(arg.value) for arg in expr.args]
@@ -373,6 +399,9 @@ class Compiler:
             enum_info = self.enum_defs.get(type_expr.name)
             if enum_info is not None:
                 return enum_info.ir_type
+            class_info = self.class_defs.get(type_expr.name)
+            if class_info is not None:
+                return class_info.ptr_type
         raise NotImplementedError(f"unsupported type {type_expr}")
 
     def register_enum(self, enum_def: EnumDef) -> None:
@@ -392,6 +421,30 @@ class Compiler:
         info = EnumInfo(name=enum_def.name, ir_type=ir_type, variants=variants)
         self.enum_defs[enum_def.name] = info
         self.enum_types[ir_type] = info
+
+    def register_class(self, class_def: ClassDef) -> None:
+        fields: list[FieldInfo] = []
+        for field in class_def.fields:
+            if not isinstance(field, FieldDecl):
+                continue
+            field_type = self.type_from_typeexpr(field.type_expr)
+            if field_type != self.i32:
+                raise NotImplementedError("class fields support only int for now")
+            fields.append(FieldInfo(name=field.name, ir_type=field_type))
+
+        struct_type = ir.LiteralStructType([f.ir_type for f in fields])
+        info = ClassInfo(
+            name=class_def.name,
+            struct_type=struct_type,
+            fields=fields,
+        )
+        self.class_defs[class_def.name] = info
+        self.class_types[info.ptr_type] = info
+
+    def compile_class_methods(self, class_def: ClassDef) -> None:
+        info = self.class_defs[class_def.name]
+        for method in class_def.methods:
+            self.compile_function(method, method_of=info)
 
     def is_enum_constructor(self, member: "Member") -> bool:
         return isinstance(member.obj, Var) and member.obj.name in self.enum_defs
@@ -420,9 +473,71 @@ class Compiler:
 
         return value
 
+    def compile_class_constructor(self, class_name: str, args: list["CallArg"]) -> ir.Value:
+        class_info = self.class_defs.get(class_name)
+        if class_info is None:
+            raise NotImplementedError(f"unknown class {class_name}")
+        if self.builder is None:
+            raise NotImplementedError("no builder available for constructor")
+
+        null_ptr = ir.Constant(class_info.ptr_type, None)
+        size_ptr = self.builder.gep(null_ptr, [self.i32(1)], inbounds=True)
+        size = self.builder.ptrtoint(size_ptr, self.i32)
+        raw_ptr = self.builder.call(self.get_alloc(), [size])
+        obj_ptr = self.builder.bitcast(raw_ptr, class_info.ptr_type)
+
+        init_fn = self.module.globals.get(f"{class_name}__init")
+        if isinstance(init_fn, ir.Function):
+            init_args = [obj_ptr] + [self.compile_expr(arg.value) for arg in args]
+            param_types = list(init_fn.function_type.args)
+            if len(param_types) != len(init_args):
+                raise NotImplementedError("constructor argument count mismatch")
+            coerced_args = [
+                self.coerce(arg, ptype)
+                for arg, ptype in zip(init_args, param_types, strict=False)
+            ]
+            self.builder.call(init_fn, coerced_args)
+        elif args:
+            raise NotImplementedError("constructor args provided but no init method defined")
+
+        return obj_ptr
+
+    def compile_member_load(self, member: Member) -> ir.Value:
+        obj = self.compile_expr(member.obj)
+        class_info = self.class_types.get(obj.type)
+        if class_info is None:
+            raise NotImplementedError("member access only supported on class instances")
+        field_index = class_info.field_index(member.name)
+        ptr = self.builder.gep(obj, [self.i32(0), self.i32(field_index)], inbounds=True)
+        return self.builder.load(ptr)
+
+    def compile_member_store(self, member: Member, value: ir.Value) -> None:
+        obj = self.compile_expr(member.obj)
+        class_info = self.class_types.get(obj.type)
+        if class_info is None:
+            raise NotImplementedError("member access only supported on class instances")
+        field_index = class_info.field_index(member.name)
+        ptr = self.builder.gep(obj, [self.i32(0), self.i32(field_index)], inbounds=True)
+        self.builder.store(self.coerce(value, class_info.struct_type.elements[field_index]), ptr)
+
     def compile_method_call(self, member: "Member", args: list["CallArg"]) -> ir.Value:
         if member.name != "format":
-            raise NotImplementedError("only string.format is supported")
+            receiver = self.compile_expr(member.obj)
+            class_info = self.class_types.get(receiver.type)
+            if class_info is None:
+                raise NotImplementedError("only string.format or class methods are supported")
+            method = self.module.globals.get(f"{class_info.name}__{member.name}")
+            if not isinstance(method, ir.Function):
+                raise NotImplementedError("unknown method")
+            call_args = [receiver] + [self.compile_expr(arg.value) for arg in args]
+            param_types = list(method.function_type.args)
+            if len(param_types) != len(call_args):
+                raise NotImplementedError("argument count mismatch")
+            coerced_args = [
+                self.coerce(arg, ptype)
+                for arg, ptype in zip(call_args, param_types, strict=False)
+            ]
+            return self.builder.call(method, coerced_args)
         if len(args) != 1:
             raise NotImplementedError("format expects exactly one argument")
         receiver = self.compile_expr(member.obj)
@@ -431,6 +546,16 @@ class Compiler:
             raise NotImplementedError("format supports only string argument")
         callee = self.get_format1()
         return self.builder.call(callee, [receiver, arg])
+
+    def get_alloc(self) -> ir.Function:
+        callee = self.module.globals.get("vexil_alloc")
+        if not isinstance(callee, ir.Function):
+            callee = ir.Function(
+                self.module,
+                ir.FunctionType(self.i8.as_pointer(), [self.i32]),
+                name="vexil_alloc",
+            )
+        return callee
 
     def compile_match(self, expr: MatchExpr) -> ir.Value:
         assert self.builder is not None
@@ -599,6 +724,29 @@ class EnumInfo:
     @property
     def max_payload(self) -> int:
         return len(self.ir_type.elements) - 1
+
+
+@dataclass(frozen=True)
+class FieldInfo:
+    name: str
+    ir_type: ir.Type
+
+
+@dataclass(frozen=True)
+class ClassInfo:
+    name: str
+    struct_type: ir.LiteralStructType
+    fields: list[FieldInfo]
+
+    @property
+    def ptr_type(self) -> ir.PointerType:
+        return self.struct_type.as_pointer()
+
+    def field_index(self, name: str) -> int:
+        for idx, field in enumerate(self.fields):
+            if field.name == name:
+                return idx
+        raise NotImplementedError(f"unknown field {name}")
 
 
 def emit_object(module: ir.Module) -> bytes:
