@@ -105,6 +105,13 @@ class WhileStmt(Stmt):
 
 
 @dataclass(frozen=True)
+class ForStmt(Stmt):
+    var: str
+    iterable: Expr
+    body: Block
+
+
+@dataclass(frozen=True)
 class ExprStmt(Stmt):
     expr: Expr
 
@@ -234,6 +241,8 @@ keywords = {
     "else",
     "match",
     "while",
+    "for",
+    "in",
     "and",
     "or",
     "not",
@@ -614,6 +623,16 @@ def while_stmt() -> Generator[Parser, Any, WhileStmt]:
 
 
 @parsy.generate
+def for_stmt() -> Generator[Parser, Any, ForStmt]:
+    yield kw("for")
+    var = yield ident
+    yield kw("in")
+    iterable = yield expr
+    body = yield block
+    return ForStmt(var, iterable, body)
+
+
+@parsy.generate
 def import_stmt() -> Generator[Parser, Any, ImportStmt]:
     yield kw("import")
     path = yield string_lit
@@ -662,6 +681,7 @@ stmt.become(
     | return_stmt
     | if_stmt
     | while_stmt
+    | for_stmt
     | expr_stmt
 )
 

@@ -21,6 +21,7 @@ from parser import (
     Expr,
     ExprStmt,
     FieldDecl,
+    ForStmt,
     FuncDef,
     IfStmt,
     LetDecl,
@@ -151,6 +152,8 @@ class Compiler:
                 self.compile_if(stmt)
             elif isinstance(stmt, WhileStmt):
                 self.compile_while(stmt)
+            elif isinstance(stmt, ForStmt):
+                self.compile_for(stmt)
             elif isinstance(stmt, ExprStmt):
                 self.compile_expr(stmt.expr)
             else:
@@ -183,6 +186,57 @@ class Compiler:
         self.compile_block(stmt.body)
         if not self.builder.block.is_terminated:
             self.builder.branch(cond_block)
+
+        self.builder.position_at_end(end_block)
+
+    def compile_for(self, stmt: ForStmt) -> None:
+        assert self.builder is not None
+        if not (
+            isinstance(stmt.iterable, Call)
+            and isinstance(stmt.iterable.func, Var)
+            and stmt.iterable.func.name == "range"
+        ):
+            raise NotImplementedError("for loops only support range() as iterable")
+
+        args = [self.compile_expr(a.value) for a in stmt.iterable.args]
+        nargs = len(args)
+        if nargs == 1:
+            start, end, step = self.i32(0), args[0], self.i32(1)
+        elif nargs == 2:
+            start, end, step = args[0], args[1], self.i32(1)
+        elif nargs == 3:
+            start, end, step = args[0], args[1], args[2]
+        else:
+            raise NotImplementedError("range() expects 1 to 3 arguments")
+
+        func = self.builder.function
+        loop_var = self.builder.alloca(self.i32, name=stmt.var)
+        self.builder.store(self.coerce_i32(start), loop_var)
+        self.allocas[stmt.var] = loop_var
+        self.var_types[stmt.var] = self.i32
+
+        cond_block = func.append_basic_block("for.cond")
+        body_block = func.append_basic_block("for.body")
+        inc_block = func.append_basic_block("for.inc")
+        end_block = func.append_basic_block("for.end")
+
+        self.builder.branch(cond_block)
+
+        self.builder.position_at_end(cond_block)
+        cur = self.builder.load(loop_var)
+        cond = self.builder.icmp_signed("<", cur, self.coerce_i32(end))
+        self.builder.cbranch(cond, body_block, end_block)
+
+        self.builder.position_at_end(body_block)
+        self.compile_block(stmt.body)
+        if not self.builder.block.is_terminated:
+            self.builder.branch(inc_block)
+
+        self.builder.position_at_end(inc_block)
+        cur = self.builder.load(loop_var)
+        next_val = self.builder.add(cur, self.coerce_i32(step))
+        self.builder.store(next_val, loop_var)
+        self.builder.branch(cond_block)
 
         self.builder.position_at_end(end_block)
 

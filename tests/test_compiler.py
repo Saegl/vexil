@@ -108,6 +108,24 @@ def test_compile_not() -> None:
     assert "flip" in ir_text
 
 
+def test_compile_for_range() -> None:
+    src = (
+        "def main() {\n"
+        "    let sum = 0\n"
+        "    for i in range(10) {\n"
+        "        sum = sum + i\n"
+        "    }\n"
+        "    print(sum)\n"
+        "}\n"
+    )
+    program = parse_program(src)
+    compiler = Compiler()
+    module = compiler.compile_program(program)
+    ir_text = str(module)
+    assert "for.cond" in ir_text
+    assert "for.body" in ir_text
+
+
 def test_compile_class_methods() -> None:
     src = (
         "class Counter { value: int\n"

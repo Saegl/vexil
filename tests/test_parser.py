@@ -7,6 +7,7 @@ from parser import (
     ClassDef,
     EnumDef,
     ExprStmt,
+    ForStmt,
     FromImportStmt,
     FuncDef,
     IfStmt,
@@ -158,6 +159,26 @@ def test_parse_assignment_expr() -> None:
     assert isinstance(expr_stmt.expr, Assign)
     assert isinstance(expr_stmt.expr.target, Var)
     assert isinstance(expr_stmt.expr.value, Literal)
+
+
+def test_parse_for_range() -> None:
+    src = (
+        "def main() {\n"
+        "    for i in range(10) {\n"
+        "        print(i)\n"
+        "    }\n"
+        "}\n"
+    )
+    ast = parse_program(src)
+    fn = ast.statements[0]
+    assert isinstance(fn, FuncDef)
+    for_stmt = fn.body.statements[0]
+    assert isinstance(for_stmt, ForStmt)
+    assert for_stmt.var == "i"
+    assert isinstance(for_stmt.iterable, Call)
+    assert isinstance(for_stmt.iterable.func, Var)
+    assert for_stmt.iterable.func.name == "range"
+    assert for_stmt.body.statements
 
 
 def test_parse_examples_folder() -> None:

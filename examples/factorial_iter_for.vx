@@ -1,0 +1,13 @@
+# iterative factorial using for loop with range
+
+def fact(n: int) -> int {
+    let result = 1
+    for i in range(1, n + 1) {
+        result = result * i
+    }
+    return result
+}
+
+def main() {
+    print(fact(5))
+}

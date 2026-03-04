@@ -212,6 +212,26 @@ while x < 10 {
 
 The `while` loop repeats a block while the condition is true.
 
+## 8.1 For Loops
+
+The `for` loop iterates over a range of values using the builtin `range` function.
+
+```vexil
+for i in range(10) {
+    print(i)
+}
+```
+
+`range` supports 1 to 3 arguments:
+
+```vexil
+for i in range(10) { ... }           # 0..9
+for i in range(1, 10) { ... }        # 1..9
+for i in range(0, 10, 2) { ... }     # 0, 2, 4, 6, 8
+```
+
+`range` is a compiler builtin (pure LLVM codegen, no runtime needed).
+
 ## 9. Pattern Matching
 
 Pattern matching uses `match`.
