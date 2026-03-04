@@ -1,15 +1,24 @@
-# enums and pattern matching
+# tagged enums (int-only payloads for now)
 
 enum Shape {
-    Circle(float)
-    Rect(float, float)
+    Circle(int)
+    Rect(int, int)
     Point
 }
 
-def area(s: Shape) -> float {
+def area(s: Shape) -> int {
     return match s {
-        Circle(r) => 3.14 * r * r
+        Circle(r) => r * r
         Rect(w, h) => w * h
         Point => 0
     }
+}
+
+def main() {
+    let c = Shape.Circle(4)
+    let r = Shape.Rect(3, 5)
+    let p = Shape.Point()
+    print(area(c))
+    print(area(r))
+    print(area(p))
 }
