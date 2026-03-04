@@ -1,0 +1,7 @@
+# import from examples folder via cwd resolution
+from "examples/math2.vx" import add, sub
+
+def main() {
+    print(add(7, 8))
+    print(sub(10, 3))
+}
