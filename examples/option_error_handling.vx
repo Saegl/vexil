@@ -1,0 +1,28 @@
+# Option-based error handling for safe division
+
+enum Option {
+    Some(float)
+    None
+}
+
+def safe_div(a: float, b: float) -> Option {
+    if b == 0.0 {
+        return Option.None()
+    }
+    return Option.Some(a / b)
+}
+
+def main() {
+    let good = safe_div(10.0, 2.0)
+    let bad = safe_div(10.0, 0.0)
+
+    match good {
+        Some(value) => print(value)
+        None => print(0.0)
+    }
+
+    match bad {
+        Some(value) => print(value)
+        None => print(0.0)
+    }
+}

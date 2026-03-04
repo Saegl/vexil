@@ -49,6 +49,7 @@ class Compiler:
         self.module = ir.Module(name="vexil")
         self.i32 = ir.IntType(32)
         self.i1 = ir.IntType(1)
+        self.i64 = ir.IntType(64)
         self.i8 = ir.IntType(8)
         self.f64 = ir.DoubleType()
         self.builder: ir.IRBuilder | None = None
@@ -327,12 +328,45 @@ class Compiler:
             return self.i32(0)
         if typ == self.i1:
             return self.i1(0)
+        if typ == self.i64:
+            return self.i64(0)
         if typ == self.f64:
             return self.f64(0.0)
         if isinstance(typ, ir.LiteralStructType):
-            elements = [self.i32(0) for _ in range(len(typ.elements))]
+            elements = [self.zero_for_type(elem) for elem in typ.elements]
             return ir.Constant(typ, elements)
+        if isinstance(typ, ir.PointerType):
+            return ir.Constant(typ, None)
         raise NotImplementedError("zero value for type not supported")
+
+    def is_supported_enum_field_type(self, typ: ir.Type) -> bool:
+        return typ in {self.i32, self.i1, self.f64} or isinstance(
+            typ, ir.PointerType
+        )
+
+    def pack_enum_payload(self, value: ir.Value) -> ir.Value:
+        assert self.builder is not None
+        if value.type == self.i32:
+            return self.builder.zext(value, self.i64)
+        if value.type == self.i1:
+            return self.builder.zext(value, self.i64)
+        if value.type == self.f64:
+            return self.builder.bitcast(value, self.i64)
+        if isinstance(value.type, ir.PointerType):
+            return self.builder.ptrtoint(value, self.i64)
+        raise NotImplementedError("unsupported enum payload type")
+
+    def unpack_enum_payload(self, value: ir.Value, target: ir.Type) -> ir.Value:
+        assert self.builder is not None
+        if target == self.i32:
+            return self.builder.trunc(value, self.i32)
+        if target == self.i1:
+            return self.builder.trunc(value, self.i1)
+        if target == self.f64:
+            return self.builder.bitcast(value, self.f64)
+        if isinstance(target, ir.PointerType):
+            return self.builder.inttoptr(value, target)
+        raise NotImplementedError("unsupported enum payload type")
 
     def compile_string_literal(self, value: str) -> ir.Value:
         assert self.builder is not None
@@ -429,16 +463,19 @@ class Compiler:
         variants: dict[str, VariantInfo] = {}
         max_arity = 0
         for idx, variant in enumerate(enum_def.variants):
-            arity = len(variant.fields)
+            field_types: list[ir.Type] = []
             for field in variant.fields:
                 field_type = self.type_from_typeexpr(field)
-                if field_type != self.i32:
-                    raise NotImplementedError("enum fields support only int for now")
-            variants[variant.name] = VariantInfo(tag=idx, arity=arity)
-            if arity > max_arity:
-                max_arity = arity
+                if not self.is_supported_enum_field_type(field_type):
+                    raise NotImplementedError(
+                        "enum fields support only int/bool/float/string/class pointers"
+                    )
+                field_types.append(field_type)
+            variants[variant.name] = VariantInfo(tag=idx, fields=field_types)
+            if len(field_types) > max_arity:
+                max_arity = len(field_types)
 
-        ir_type = ir.LiteralStructType([self.i32] + [self.i32] * max_arity)
+        ir_type = ir.LiteralStructType([self.i32] + [self.i64] * max_arity)
         info = EnumInfo(name=enum_def.name, ir_type=ir_type, variants=variants)
         self.enum_defs[enum_def.name] = info
         self.enum_types[ir_type] = info
@@ -490,9 +527,11 @@ class Compiler:
 
         for idx in range(enum_info.max_payload):
             if idx < variant.arity:
-                arg_val = self.coerce_i32(self.compile_expr(args[idx].value))
+                field_type = variant.fields[idx]
+                coerced = self.coerce(self.compile_expr(args[idx].value), field_type)
+                arg_val = self.pack_enum_payload(coerced)
             else:
-                arg_val = self.i32(0)
+                arg_val = self.i64(0)
             value = self.builder.insert_value(value, arg_val, idx + 1)
 
         return value
@@ -681,6 +720,7 @@ class Compiler:
         for index, arm in enumerate(expr.arms):
             arm_block = func.append_basic_block(f"match.arm{index}")
             pattern = arm.pattern
+            variant: VariantInfo | None = None
 
             self.builder.position_at_end(current_block)
 
@@ -715,16 +755,19 @@ class Compiler:
             saved_types = self.var_types.copy()
 
             if isinstance(pattern, ConstructorPattern):
+                assert variant is not None
                 for idx, pat in enumerate(pattern.args):
                     if not isinstance(pat, VarPattern):
                         raise NotImplementedError(
                             "only variable patterns are supported for enum fields"
                         )
-                    field_val = self.builder.extract_value(subject, idx + 1)
-                    slot = self.builder.alloca(self.i32, name=pat.name)
+                    field_type = variant.fields[idx]
+                    raw_val = self.builder.extract_value(subject, idx + 1)
+                    field_val = self.unpack_enum_payload(raw_val, field_type)
+                    slot = self.builder.alloca(field_type, name=pat.name)
                     self.builder.store(field_val, slot)
                     self.allocas[pat.name] = slot
-                    self.var_types[pat.name] = self.i32
+                    self.var_types[pat.name] = field_type
 
             value = self.coerce_i32(self.compile_expr(arm.expr))
             self.builder.store(value, result_slot)
@@ -753,7 +796,11 @@ class Compiler:
 @dataclass(frozen=True)
 class VariantInfo:
     tag: int
-    arity: int
+    fields: list[ir.Type]
+
+    @property
+    def arity(self) -> int:
+        return len(self.fields)
 
 
 @dataclass(frozen=True)
