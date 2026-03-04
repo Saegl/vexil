@@ -1,0 +1,94 @@
+# Vexil grammar (draft v0.2)
+# Notation: EBNF, terminals in quotes.
+
+program        = stmt_list , EOF ;
+stmt_list      = { stmt_sep } , [ stmt , { stmt_sep , stmt } ] , { stmt_sep } ;
+stmt_sep       = ";" | NEWLINE ;
+
+stmt           = export_stmt
+               | import_stmt
+               | from_import_stmt
+               | let_decl
+               | const_decl
+               | func_def
+               | class_def
+               | enum_def
+               | return_stmt
+               | if_stmt
+               | expr_stmt ;
+
+export_stmt    = "export" , ( func_def | class_def | enum_def | let_decl | const_decl ) ;
+
+import_stmt    = "import" , STRING ;
+from_import_stmt = "from" , STRING , "import" , ident , { "," , ident } ;
+
+let_decl       = "let" , ident , [ ":" , type_expr ] , "=" , expr ;
+const_decl     = "const" , ident , [ ":" , type_expr ] , "=" , expr ;
+
+func_def       = "def" , ident , [ type_params ] , "(" , [ param_list ] , ")" ,
+                 [ "->" , type_expr ] , block ;
+
+param_list     = param , { "," , param } ;
+param          = ident , [ ":" , type_expr ] , [ "=" , expr ] ;
+
+class_def      = "class" , ident , [ type_params ] , [ "(" , type_expr , ")" ] ,
+                 "{" , class_member_list , "}" ;
+class_member_list = { stmt_sep } , [ class_member , { stmt_sep , class_member } ] , { stmt_sep } ;
+class_member   = field_decl | func_def ;
+field_decl     = ident , ":" , type_expr ;
+
+enum_def       = "enum" , ident , [ type_params ] , "{" , enum_variant_list , "}" ;
+enum_variant_list = { stmt_sep } , [ enum_variant , { stmt_sep , enum_variant } ] , { stmt_sep } ;
+enum_variant   = ident , [ "(" , type_expr_list , ")" ] ;
+
+type_params    = "<" , type_param , { "," , type_param } , ">" ;
+type_param     = ident , [ ":" , type_expr ] ;
+
+type_expr      = ident , [ "<" , type_expr , { "," , type_expr } , ">" ] ;
+
+type_expr_list = type_expr , { "," , type_expr } ;
+
+return_stmt    = "return" , [ expr ] ;
+if_stmt        = "if" , expr , block , [ "else" , block ] ;
+expr_stmt      = expr ;
+
+block          = "{" , stmt_list , "}" ;
+
+expr           = assign_expr ;
+assign_expr    = logic_or_expr , [ "=" , assign_expr ] ;
+logic_or_expr  = logic_and_expr , { "||" , logic_and_expr } ;
+logic_and_expr = equality_expr , { "&&" , equality_expr } ;
+equality_expr  = compare_expr , { ( "==" | "!=" ) , compare_expr } ;
+compare_expr   = add_expr , { ( "<" | "<=" | ">" | ">=" ) , add_expr } ;
+add_expr       = mul_expr , { ( "+" | "-" ) , mul_expr } ;
+mul_expr       = unary_expr , { ( "*" | "/" | "%" ) , unary_expr } ;
+unary_expr     = ( "!" | "+" | "-" ) , unary_expr | call_expr ;
+
+call_expr      = primary_expr , { call_suffix } ;
+call_suffix    = ( "(" , [ arg_list ] , ")" ) | ( "." , ident ) ;
+arg_list       = arg , { "," , arg } ;
+arg            = [ ident , "=" ] , expr ;
+
+primary_expr   = literal
+               | ident
+               | "(" , expr , ")"
+               | match_expr ;
+
+match_expr     = "match" , expr , "{" , match_arm_list , "}" ;
+match_arm_list = { stmt_sep } , [ match_arm , { stmt_sep , match_arm } ] , { stmt_sep } ;
+match_arm      = pattern , "=>" , expr ;
+
+pattern        = "_"
+               | literal
+               | ident , [ "(" , [ pattern , { "," , pattern } ] , ")" ] ;
+
+literal        = INT | FLOAT | STRING | "true" | "false" ;
+
+ident          = IDENT ;
+
+NEWLINE        = ? one or more line breaks ? ;
+IDENT          = ? letter or '_' followed by letters, digits, '_' ? ;
+INT            = ? decimal integer ? ;
+FLOAT          = ? decimal float ? ;
+STRING         = ? double-quoted string with escapes ? ;
+EOF            = ? end of file ? ;

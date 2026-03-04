@@ -1,0 +1,12 @@
+# functions, defaults, named args
+
+def add(a: int, b: int = 10) -> int {
+    return a + b
+}
+
+def main() {
+    let x = add(1, 2)
+    let y = add(a=3, b=4)
+    print(x)
+    print(y)
+}

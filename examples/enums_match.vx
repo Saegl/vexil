@@ -1,0 +1,15 @@
+# enums and pattern matching
+
+enum Shape {
+    Circle(float)
+    Rect(float, float)
+    Point
+}
+
+def area(s: Shape) -> float {
+    return match s {
+        Circle(r) => 3.14 * r * r
+        Rect(w, h) => w * h
+        Point => 0
+    }
+}

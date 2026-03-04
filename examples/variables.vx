@@ -1,0 +1,6 @@
+# variables and constants
+let x: int = 10
+let y = x + 2 * 3
+const PI: float = 3.14
+
+x = x + 1

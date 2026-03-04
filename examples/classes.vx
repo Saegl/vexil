@@ -1,0 +1,19 @@
+# classes, fields, methods, inheritance
+
+class Counter {
+    value: int
+
+    def init(value: int) {
+        self.value = value
+    }
+
+    def inc(self) {
+        self.value = self.value + 1
+    }
+}
+
+class FancyCounter(Counter) {
+    def dec(self) {
+        self.value = self.value - 1
+    }
+}
