@@ -19,10 +19,10 @@ build-backend = "hatchling.build"
 package = true
 
 [tool.hatch.build.targets.wheel]
-include = ["vexil.py", "compiler.py", "parser.py", "runtime.c"]
+include = ["vexil.py", "compiler.py", "parser.py", "parsy.py", "runtime.c"]
 
 [tool.hatch.build.targets.sdist]
-include = ["vexil.py", "compiler.py", "parser.py", "runtime.c", "examples", "tests", "grammar.ebnf", "README.md"]
+include = ["vexil.py", "compiler.py", "parser.py", "parsy.py", "runtime.c", "examples", "tests", "grammar.ebnf", "README.md"]
 
 [dependency-groups]
 dev = [
