@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
-from typing import Any, Generator, Optional, cast
+from collections.abc import Generator
+from dataclasses import dataclass
+from typing import Any, cast
 
 import parsy
-
 
 # === AST ===
 
@@ -14,7 +14,7 @@ Parser = parsy.Parser[Any]
 
 @dataclass(frozen=True)
 class Program:
-    statements: list["Stmt"]
+    statements: list[Stmt]
 
 
 class Stmt:
@@ -40,8 +40,8 @@ class FromImportStmt(Stmt):
 @dataclass(frozen=True)
 class LetDecl(Stmt):
     name: str
-    type_expr: Optional["TypeExpr"]
-    value: "Expr"
+    type_expr: TypeExpr | None
+    value: Expr
     is_const: bool
     is_export: bool
 
@@ -49,9 +49,9 @@ class LetDecl(Stmt):
 @dataclass(frozen=True)
 class FuncDef(Stmt):
     name: str
-    type_params: list["TypeParam"]
-    params: list["Param"]
-    return_type: Optional["TypeExpr"]
+    type_params: list[TypeParam]
+    params: list[Param]
+    return_type: TypeExpr | None
     body: Block
     is_export: bool
 
@@ -59,9 +59,9 @@ class FuncDef(Stmt):
 @dataclass(frozen=True)
 class ClassDef(Stmt):
     name: str
-    type_params: list["TypeParam"]
-    base: Optional["TypeExpr"]
-    fields: list["FieldDecl"]
+    type_params: list[TypeParam]
+    base: TypeExpr | None
+    fields: list[FieldDecl]
     methods: list[FuncDef]
     is_export: bool
 
@@ -69,51 +69,51 @@ class ClassDef(Stmt):
 @dataclass(frozen=True)
 class FieldDecl:
     name: str
-    type_expr: "TypeExpr"
+    type_expr: TypeExpr
 
 
 @dataclass(frozen=True)
 class EnumDef(Stmt):
     name: str
-    type_params: list["TypeParam"]
-    variants: list["EnumVariant"]
+    type_params: list[TypeParam]
+    variants: list[EnumVariant]
     is_export: bool
 
 
 @dataclass(frozen=True)
 class EnumVariant:
     name: str
-    fields: list["TypeExpr"]
+    fields: list[TypeExpr]
 
 
 @dataclass(frozen=True)
 class ReturnStmt(Stmt):
-    value: Optional["Expr"]
+    value: Expr | None
 
 
 @dataclass(frozen=True)
 class IfStmt(Stmt):
-    condition: "Expr"
+    condition: Expr
     then_block: Block
-    else_block: Optional[Block]
+    else_block: Block | None
 
 
 @dataclass(frozen=True)
 class ExprStmt(Stmt):
-    expr: "Expr"
+    expr: Expr
 
 
 @dataclass(frozen=True)
 class Param:
     name: str
-    type_expr: Optional["TypeExpr"]
-    default: Optional["Expr"]
+    type_expr: TypeExpr | None
+    default: Expr | None
 
 
 @dataclass(frozen=True)
 class TypeParam:
     name: str
-    bound: Optional["TypeExpr"]
+    bound: TypeExpr | None
 
 
 class TypeExpr:
@@ -123,7 +123,7 @@ class TypeExpr:
 @dataclass(frozen=True)
 class NamedType(TypeExpr):
     name: str
-    args: list["TypeExpr"]
+    args: list[TypeExpr]
 
 
 class Expr:
@@ -167,7 +167,7 @@ class Member(Expr):
 
 @dataclass(frozen=True)
 class CallArg:
-    name: Optional[str]
+    name: str | None
     value: Expr
 
 
@@ -180,12 +180,12 @@ class Call(Expr):
 @dataclass(frozen=True)
 class MatchExpr(Expr):
     subject: Expr
-    arms: list["MatchArm"]
+    arms: list[MatchArm]
 
 
 @dataclass(frozen=True)
 class MatchArm:
-    pattern: "Pattern"
+    pattern: Pattern
     expr: Expr
 
 
@@ -446,7 +446,10 @@ def unary_expr() -> Generator[Parser, Any, Expr]:
 
 
 mul_expr = infix_left(
-    unary_expr, lexeme(parsy.string("*")) | lexeme(parsy.string("/")) | lexeme(parsy.string("%"))
+    unary_expr,
+    lexeme(parsy.string("*"))
+    | lexeme(parsy.string("/"))
+    | lexeme(parsy.string("%")),
 )
 add_expr = infix_left(
     mul_expr, lexeme(parsy.string("+")) | lexeme(parsy.string("-"))
@@ -482,7 +485,9 @@ expr.become(assign_expr)
 
 @parsy.generate
 def block() -> Generator[Parser, Any, Block]:
-    stmts = yield braces(stmt_sep.optional() >> stmt.sep_by(stmt_sep) << stmt_sep.optional())
+    stmts = yield braces(
+        stmt_sep.optional() >> stmt.sep_by(stmt_sep) << stmt_sep.optional()
+    )
     return Block(stmts)
 
 

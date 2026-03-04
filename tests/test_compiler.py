@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from compiler import Compiler
-from vexil import load_program_with_imports
 from parser import parse_program
+from vexil import load_program_with_imports
 
 
 def test_build_examples_folder() -> None:

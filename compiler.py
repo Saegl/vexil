@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 
 from llvmlite import binding, ir
-
-from dataclasses import dataclass
 
 from parser import (
     Assign,
@@ -15,27 +14,27 @@ from parser import (
     Block,
     Call,
     CallArg,
-    Member,
+    ClassDef,
     ConstructorPattern,
+    EnumDef,
     Expr,
     ExprStmt,
+    FieldDecl,
     FuncDef,
     IfStmt,
     LetDecl,
     Literal,
     LiteralPattern,
     MatchExpr,
+    Member,
     NamedType,
-    VarPattern,
     Program,
     ReturnStmt,
+    TypeExpr,
     Unary,
     Var,
+    VarPattern,
     WildcardPattern,
-    EnumDef,
-    TypeExpr,
-    ClassDef,
-    FieldDecl,
 )
 
 
@@ -76,7 +75,12 @@ class Compiler:
                 self.compile_class_methods(stmt)
         return self.module
 
-    def compile_function(self, func: FuncDef, *, method_of: ClassInfo | None = None) -> None:
+    def compile_function(
+        self,
+        func: FuncDef,
+        *,
+        method_of: ClassInfo | None = None,
+    ) -> None:
         param_types = [self.type_from_typeexpr(p.type_expr) for p in func.params]
         ret_type = self.type_from_typeexpr(func.return_type)
         if method_of is not None:
@@ -254,7 +258,10 @@ class Compiler:
                     if len(args) != 1:
                         raise NotImplementedError("print expects exactly one argument")
                     arg = args[0]
-                    if isinstance(arg.type, ir.PointerType) and arg.type.pointee == self.i8:
+                    if (
+                        isinstance(arg.type, ir.PointerType)
+                        and arg.type.pointee == self.i8
+                    ):
                         callee = self.get_print_str()
                         return self.builder.call(callee, [arg])
                     if arg.type == self.f64:
@@ -272,7 +279,8 @@ class Compiler:
                 if len(param_types) != len(args):
                     raise NotImplementedError("argument count mismatch")
                 coerced_args = [
-                    self.coerce(arg, ptype) for arg, ptype in zip(args, param_types, strict=False)
+                    self.coerce(arg, ptype)
+                    for arg, ptype in zip(args, param_types, strict=False)
                 ]
                 return self.builder.call(callee, coerced_args)
             if isinstance(expr.func, Member):
@@ -343,7 +351,11 @@ class Compiler:
     def get_print_int(self) -> ir.Function:
         callee = self.module.globals.get("print")
         if not isinstance(callee, ir.Function):
-            callee = ir.Function(self.module, ir.FunctionType(self.i32, [self.i32]), name="print")
+            callee = ir.Function(
+                self.module,
+                ir.FunctionType(self.i32, [self.i32]),
+                name="print",
+            )
         return callee
 
     def get_print_str(self) -> ir.Function:
@@ -381,7 +393,10 @@ class Compiler:
         if not isinstance(callee, ir.Function):
             callee = ir.Function(
                 self.module,
-                ir.FunctionType(self.i8.as_pointer(), [self.i8.as_pointer(), self.i8.as_pointer()]),
+                ir.FunctionType(
+                    self.i8.as_pointer(),
+                    [self.i8.as_pointer(), self.i8.as_pointer()],
+                ),
                 name="format1",
             )
         return callee
@@ -391,7 +406,9 @@ class Compiler:
             return self.i32
         if isinstance(type_expr, NamedType):
             if type_expr.args:
-                raise NotImplementedError("generic types are not supported in the backend")
+                raise NotImplementedError(
+                    "generic types are not supported in the backend"
+                )
             if type_expr.name == "int":
                 return self.i32
             if type_expr.name == "bool":
@@ -450,10 +467,10 @@ class Compiler:
         for method in class_def.methods:
             self.compile_function(method, method_of=info)
 
-    def is_enum_constructor(self, member: "Member") -> bool:
+    def is_enum_constructor(self, member: Member) -> bool:
         return isinstance(member.obj, Var) and member.obj.name in self.enum_defs
 
-    def compile_enum_constructor(self, member: "Member", args: list["CallArg"]) -> ir.Value:
+    def compile_enum_constructor(self, member: Member, args: list[CallArg]) -> ir.Value:
         if not isinstance(member.obj, Var):
             raise NotImplementedError("enum constructor must be Enum.Variant")
         enum_info = self.enum_defs.get(member.obj.name)
@@ -462,7 +479,9 @@ class Compiler:
         assert self.builder is not None
         variant = enum_info.variants.get(member.name)
         if variant is None:
-            raise NotImplementedError(f"unknown variant {member.name} for {member.obj.name}")
+            raise NotImplementedError(
+                f"unknown variant {member.name} for {member.obj.name}"
+            )
         if len(args) != variant.arity:
             raise NotImplementedError("enum constructor arity mismatch")
 
@@ -478,7 +497,11 @@ class Compiler:
 
         return value
 
-    def compile_class_constructor(self, class_name: str, args: list["CallArg"]) -> ir.Value:
+    def compile_class_constructor(
+        self,
+        class_name: str,
+        args: list[CallArg],
+    ) -> ir.Value:
         class_info = self.class_defs.get(class_name)
         if class_info is None:
             raise NotImplementedError(f"unknown class {class_name}")
@@ -503,7 +526,9 @@ class Compiler:
             ]
             self.builder.call(init_fn, coerced_args)
         elif args:
-            raise NotImplementedError("constructor args provided but no init method defined")
+            raise NotImplementedError(
+                "constructor args provided but no init method defined"
+            )
 
         return obj_ptr
 
@@ -524,16 +549,23 @@ class Compiler:
         if class_info is None:
             raise NotImplementedError("member access only supported on class instances")
         field_index = class_info.field_index(member.name)
-        ptr = self.builder.gep(obj, [self.i32(0), self.i32(field_index)], inbounds=True)
-        self.builder.store(self.coerce(value, class_info.struct_type.elements[field_index]), ptr)
+        ptr = self.builder.gep(
+            obj, [self.i32(0), self.i32(field_index)], inbounds=True
+        )
+        self.builder.store(
+            self.coerce(value, class_info.struct_type.elements[field_index]),
+            ptr,
+        )
 
-    def compile_method_call(self, member: "Member", args: list["CallArg"]) -> ir.Value:
+    def compile_method_call(self, member: Member, args: list[CallArg]) -> ir.Value:
         assert self.builder is not None
         if member.name != "format":
             receiver = self.compile_expr(member.obj)
             class_info = self.class_types.get(receiver.type)
             if class_info is None:
-                raise NotImplementedError("only string.format or class methods are supported")
+                raise NotImplementedError(
+                    "only string.format or class methods are supported"
+                )
             method = self.module.globals.get(f"{class_info.name}__{member.name}")
             if not isinstance(method, ir.Function):
                 raise NotImplementedError("unknown method")
@@ -582,11 +614,10 @@ class Compiler:
 
         for index, arm in enumerate(expr.arms):
             arm_block = func.append_basic_block(f"match.arm{index}")
-            is_last = index == len(expr.arms) - 1
             pattern = arm.pattern
             self.builder.position_at_end(current_block)
 
-            if isinstance(pattern, WildcardPattern) or isinstance(pattern, VarPattern):
+            if isinstance(pattern, (WildcardPattern, VarPattern)):
                 self.builder.branch(arm_block)
             elif isinstance(pattern, LiteralPattern):
                 lit = pattern.value
@@ -621,7 +652,7 @@ class Compiler:
             self.allocas = saved_allocas
             self.var_types = saved_types
 
-            if isinstance(pattern, WildcardPattern) or isinstance(pattern, VarPattern):
+            if isinstance(pattern, (WildcardPattern, VarPattern)):
                 has_fallthrough = False
                 break
 
@@ -634,7 +665,7 @@ class Compiler:
     def compile_enum_match(
         self,
         subject: ir.Value,
-        enum_info: "EnumInfo",
+        enum_info: EnumInfo,
         expr: MatchExpr,
     ) -> ir.Value:
         assert self.builder is not None
@@ -686,7 +717,9 @@ class Compiler:
             if isinstance(pattern, ConstructorPattern):
                 for idx, pat in enumerate(pattern.args):
                     if not isinstance(pat, VarPattern):
-                        raise NotImplementedError("only variable patterns are supported for enum fields")
+                        raise NotImplementedError(
+                            "only variable patterns are supported for enum fields"
+                        )
                     field_val = self.builder.extract_value(subject, idx + 1)
                     slot = self.builder.alloca(self.i32, name=pat.name)
                     self.builder.store(field_val, slot)
@@ -789,6 +822,13 @@ def build_executable(module: ir.Module, output_path: Path) -> None:
             cwd=Path(__file__).resolve().parent,
         )
         subprocess.run(
-            [compiler, str(obj_path), str(runtime_obj), "-o", str(output_path), "-no-pie"],
+            [
+                compiler,
+                str(obj_path),
+                str(runtime_obj),
+                "-o",
+                str(output_path),
+                "-no-pie",
+            ],
             check=True,
         )

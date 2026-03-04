@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import argparse
+import subprocess
+import tempfile
 from pathlib import Path
 
 from compiler import Compiler, build_executable
 from parser import FromImportStmt, ImportStmt, Program, parse_program
 
 
-def resolve_import_path(raw: str, base_dir: "Path", stdlib_dir: "Path") -> "Path":
+def resolve_import_path(raw: str, base_dir: Path, stdlib_dir: Path) -> Path:
     candidate = Path(raw)
     if candidate.is_absolute():
         return candidate
@@ -19,7 +22,7 @@ def resolve_import_path(raw: str, base_dir: "Path", stdlib_dir: "Path") -> "Path
     return (stdlib_dir / raw).resolve()
 
 
-def load_program_with_imports(path: "Path") -> Program:
+def load_program_with_imports(path: Path) -> Program:
     stdlib_dir = Path(__file__).resolve().parent / "stdlib"
     seen: set[Path] = set()
     ordered: list[Program] = []
@@ -33,10 +36,7 @@ def load_program_with_imports(path: "Path") -> Program:
         program = parse_program(source)
         base_dir = file_path.parent
         for stmt in program.statements:
-            if isinstance(stmt, ImportStmt):
-                import_path = resolve_import_path(stmt.path, base_dir, stdlib_dir)
-                visit(import_path)
-            elif isinstance(stmt, FromImportStmt):
+            if isinstance(stmt, (ImportStmt, FromImportStmt)):
                 import_path = resolve_import_path(stmt.path, base_dir, stdlib_dir)
                 visit(import_path)
         ordered.append(program)
@@ -52,7 +52,7 @@ def load_program_with_imports(path: "Path") -> Program:
     return Program(combined)
 
 
-def compile_path(path: "Path") -> "Compiler":
+def compile_path(path: Path) -> Compiler:
     program = load_program_with_imports(path)
     compiler = Compiler()
     compiler.compile_program(program)
@@ -60,11 +60,6 @@ def compile_path(path: "Path") -> "Compiler":
 
 
 def main() -> None:
-    import argparse
-    from pathlib import Path
-    import subprocess
-    import tempfile
-
     parser = argparse.ArgumentParser(description="Vexil compiler")
     subparsers = parser.add_subparsers(dest="command", required=True)
 

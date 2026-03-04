@@ -3,16 +3,19 @@ from __future__ import annotations
 import enum
 import operator
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Callable, FrozenSet, Generic, Iterable, TypeVar
+from typing import Any, TypeVar
 
 __version__ = "2.2"
 
 T = TypeVar("T")
 U = TypeVar("U")
 
-noop = lambda x: x
+
+def noop(x):
+    return x
 
 
 def line_info_at(stream, index):
@@ -51,7 +54,7 @@ class Result:
     index: int
     value: Any
     furthest: int
-    expected: FrozenSet[str]
+    expected: frozenset[str]
 
     @staticmethod
     def success(index, value) -> Result:
@@ -89,7 +92,7 @@ class Result:
 # type Stream = str | bytes | list
 
 
-class Parser(Generic[T]):
+class Parser[T]:
     """
     A Parser is an object that wraps a function whose arguments are
     a string to be parsed and the index on which to begin parsing.
@@ -111,7 +114,7 @@ class Parser(Generic[T]):
         return self.wrapped_fn(stream, index)
 
     def parse(self, stream: str | bytes | list) -> Any:
-        """Parses a string or list of tokens and returns the result or raise a ParseError."""
+        """Parses a string or list of tokens and returns the result."""
         (result, _) = (self << eof).parse_partial(stream)
         return result
 
@@ -145,7 +148,8 @@ class Parser(Generic[T]):
 
     def map(self, map_function: Callable) -> Parser:
         """
-        Returns a parser that transforms the produced value of the initial parser with map_function.
+        Returns a parser that transforms the produced value of the initial parser
+        with map_function.
         """
         return self.bind(lambda res: success(map_function(res)))
 
@@ -343,8 +347,8 @@ class Parser(Generic[T]):
 
     def desc(self, description: str) -> Parser:
         """
-        Returns a new parser with a description added, which is used in the error message
-        if parsing fails.
+        Returns a new parser with a description added, which is used in the error
+        message if parsing fails.
         """
 
         @Parser
@@ -424,7 +428,7 @@ class Parser(Generic[T]):
     def __lshift__(self, other: Parser) -> Parser:
         return self.skip(other)
 
-    def become(self, other: "Parser") -> None:
+    def become(self, other: Parser) -> None:
         raise NotImplementedError("become is only supported on forward declarations")
 
 
