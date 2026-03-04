@@ -58,13 +58,13 @@ block          = "{" , stmt_list , "}" ;
 
 expr           = assign_expr ;
 assign_expr    = logic_or_expr , [ "=" , assign_expr ] ;
-logic_or_expr  = logic_and_expr , { "||" , logic_and_expr } ;
-logic_and_expr = equality_expr , { "&&" , equality_expr } ;
+logic_or_expr  = logic_and_expr , { "or" , logic_and_expr } ;
+logic_and_expr = equality_expr , { "and" , equality_expr } ;
 equality_expr  = compare_expr , { ( "==" | "!=" ) , compare_expr } ;
 compare_expr   = add_expr , { ( "<" | "<=" | ">" | ">=" ) , add_expr } ;
 add_expr       = mul_expr , { ( "+" | "-" ) , mul_expr } ;
 mul_expr       = unary_expr , { ( "*" | "/" | "%" ) , unary_expr } ;
-unary_expr     = ( "!" | "+" | "-" ) , unary_expr | call_expr ;
+unary_expr     = ( "not" | "+" | "-" ) , unary_expr | call_expr ;
 
 call_expr      = primary_expr , { call_suffix } ;
 call_suffix    = ( "(" , [ arg_list ] , ")" ) | ( "." , ident ) ;

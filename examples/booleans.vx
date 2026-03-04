@@ -1,0 +1,28 @@
+# boolean operators
+
+def in_range(x: int, lo: int, hi: int) -> bool {
+    return x >= lo and x <= hi
+}
+
+def main() {
+    let x = 5
+
+    if in_range(x, 1, 10) {
+        print("in range")
+    }
+
+    if not in_range(x, 20, 30) {
+        print("not in other range")
+    }
+
+    let a = true
+    let b = false
+
+    if a or b {
+        print("at least one is true")
+    }
+
+    if not (a and b) {
+        print("not both true")
+    }
+}

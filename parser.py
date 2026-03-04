@@ -234,6 +234,9 @@ keywords = {
     "else",
     "match",
     "while",
+    "and",
+    "or",
+    "not",
     "import",
     "from",
     "export",
@@ -438,9 +441,7 @@ def infix_left(operand: Parser, ops: Parser) -> Parser:
     return parser
 
 
-unary_ops = lexeme(parsy.string("!")) | lexeme(parsy.string("+")) | lexeme(
-    parsy.string("-")
-)
+unary_ops = kw("not") | lexeme(parsy.string("+")) | lexeme(parsy.string("-"))
 
 
 @parsy.generate
@@ -471,8 +472,8 @@ compare_expr = infix_left(
 equality_expr = infix_left(
     compare_expr, lexeme(parsy.string("==")) | lexeme(parsy.string("!="))
 )
-and_expr = infix_left(equality_expr, lexeme(parsy.string("&&")))
-or_expr = infix_left(and_expr, lexeme(parsy.string("||")))
+and_expr = infix_left(equality_expr, kw("and"))
+or_expr = infix_left(and_expr, kw("or"))
 
 
 @parsy.generate

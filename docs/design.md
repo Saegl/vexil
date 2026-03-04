@@ -78,7 +78,27 @@ Rules:
 - Immutable
 - Usable in type expressions and optimizations
 
-## 4. Functions
+## 4. Booleans and Logical Operators
+
+The `bool` type has two values: `true` and `false`.
+
+Logical operators use keywords:
+
+```vexil
+if x > 0 and x < 10 {
+    print("in range")
+}
+
+if not done or force {
+    run()
+}
+```
+
+- `and` — short-circuit logical AND
+- `or` — short-circuit logical OR
+- `not` — logical negation
+
+## 5. Functions
 
 Functions are defined using `def`.
 
@@ -109,7 +129,7 @@ To keep the language simple:
 - Functions cannot be overloaded by type
 - Names must be unique
 
-## 5. Classes
+## 6. Classes
 
 Classes are GC-managed reference types.
 
@@ -170,7 +190,7 @@ class Dog(Animal) {
 }
 ```
 
-## 6. Enums
+## 7. Enums
 
 Enums are tagged unions.
 
@@ -182,7 +202,7 @@ enum Shape {
 }
 ```
 
-## 7. While Loops
+## 8. While Loops
 
 ```vexil
 while x < 10 {
@@ -192,7 +212,7 @@ while x < 10 {
 
 The `while` loop repeats a block while the condition is true.
 
-## 8. Pattern Matching
+## 9. Pattern Matching
 
 Pattern matching uses `match`.
 
@@ -212,7 +232,7 @@ Guarantees:
 - Destructuring
 - Wildcard `_`
 
-## 9. Error Handling
+## 10. Error Handling
 
 Vexil does not use exceptions. Errors are values.
 
@@ -252,7 +272,7 @@ panic("unexpected state")
 
 Used for programmer mistakes.
 
-## 10. Generics
+## 11. Generics
 
 Generics are supported in functions and classes.
 
@@ -284,7 +304,7 @@ Meaning: `T` must extend `Comparable`.
 
 No trait system is included.
 
-## 11. Core Types
+## 12. Core Types
 
 Primitive types: `int`, `float`, `bool`, `string`, `bytes`
 
@@ -309,7 +329,7 @@ enum Option<T> {
 }
 ```
 
-## 12. Modules
+## 13. Modules
 
 Every file is a module. There is no `module` keyword.
 
@@ -341,7 +361,7 @@ export def add(a: int, b: int) -> int {
 
 Non-exported symbols are private.
 
-## 13. Memory Model
+## 14. Memory Model
 
 Vexil uses garbage collection.
 
@@ -352,7 +372,7 @@ Characteristics:
 - No explicit pointer types
 - Objects allocated on heap
 
-## 14. Standard Library
+## 15. Standard Library
 
 Initial standard library modules:
 
@@ -367,7 +387,7 @@ Initial standard library modules:
 - `std.process`
 - `std.test`
 
-## 15. Tooling
+## 16. Tooling
 
 Compiler commands:
 
@@ -379,7 +399,7 @@ vexil fmt
 vexil lsp
 ```
 
-## 16. Example Program
+## 17. Example Program
 
 ```vexil
 from "math.vx" import add
@@ -390,7 +410,7 @@ def main() {
 }
 ```
 
-## 17. Language Summary
+## 18. Language Summary
 
 Vexil combines:
 

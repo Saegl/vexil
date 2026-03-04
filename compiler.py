@@ -186,6 +186,31 @@ class Compiler:
 
         self.builder.position_at_end(end_block)
 
+    def compile_short_circuit(self, expr: Binary) -> ir.Value:
+        assert self.builder is not None
+        func = self.builder.function
+        left_val = self.coerce_i1(self.compile_expr(expr.left))
+
+        rhs_block = func.append_basic_block(f"{expr.op}.rhs")
+        end_block = func.append_basic_block(f"{expr.op}.end")
+        left_block = self.builder.block
+
+        if expr.op == "and":
+            self.builder.cbranch(left_val, rhs_block, end_block)
+        else:
+            self.builder.cbranch(left_val, end_block, rhs_block)
+
+        self.builder.position_at_end(rhs_block)
+        right_val = self.coerce_i1(self.compile_expr(expr.right))
+        rhs_end_block = self.builder.block
+        self.builder.branch(end_block)
+
+        self.builder.position_at_end(end_block)
+        phi = self.builder.phi(self.i1, name=f"{expr.op}.result")
+        phi.add_incoming(left_val, left_block)
+        phi.add_incoming(right_val, rhs_end_block)
+        return phi
+
     def compile_expr(self, expr: Expr) -> ir.Value:
         return self.compile_expr_with_expected(expr, None)
 
@@ -220,10 +245,12 @@ class Compiler:
                 if value.type == self.f64:
                     return value
                 return self.coerce_i32(value)
-            if expr.op == "!":
+            if expr.op == "not":
                 return self.builder.icmp_signed("==", self.coerce_i1(value), self.i1(0))
             raise NotImplementedError(f"unary op {expr.op}")
         if isinstance(expr, Binary):
+            if expr.op in {"and", "or"}:
+                return self.compile_short_circuit(expr)
             left = self.compile_expr(expr.left)
             right = self.compile_expr(expr.right)
             if expr.op == "+":

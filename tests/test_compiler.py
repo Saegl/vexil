@@ -73,6 +73,41 @@ def test_compile_while_loop() -> None:
     assert "while.body" in ir_text
 
 
+def test_compile_and_or_short_circuit() -> None:
+    src = (
+        "def check(x: int) -> int {\n"
+        "    if x > 0 and x < 10 {\n"
+        "        return 1\n"
+        "    }\n"
+        "    if x == 0 or x == 99 {\n"
+        "        return 2\n"
+        "    }\n"
+        "    return 0\n"
+        "}\n"
+        "def main() { print(check(5)) }\n"
+    )
+    program = parse_program(src)
+    compiler = Compiler()
+    module = compiler.compile_program(program)
+    ir_text = str(module)
+    assert "and.rhs" in ir_text
+    assert "or.rhs" in ir_text
+
+
+def test_compile_not() -> None:
+    src = (
+        "def flip(x: bool) -> bool {\n"
+        "    return not x\n"
+        "}\n"
+        "def main() { print(flip(true)) }\n"
+    )
+    program = parse_program(src)
+    compiler = Compiler()
+    module = compiler.compile_program(program)
+    ir_text = str(module)
+    assert "flip" in ir_text
+
+
 def test_compile_class_methods() -> None:
     src = (
         "class Counter { value: int\n"

@@ -2,6 +2,7 @@ from pathlib import Path
 
 from parser import (
     Assign,
+    Binary,
     Call,
     ClassDef,
     EnumDef,
@@ -15,6 +16,7 @@ from parser import (
     MatchExpr,
     Program,
     ReturnStmt,
+    Unary,
     Var,
     WhileStmt,
     parse_program,
@@ -119,6 +121,31 @@ def test_parse_while() -> None:
     while_stmt = fn.body.statements[1]
     assert isinstance(while_stmt, WhileStmt)
     assert while_stmt.body.statements
+
+
+def test_parse_logical_operators() -> None:
+    src = (
+        "def main() {\n"
+        "    let x = true and false\n"
+        "    let y = x or true\n"
+        "    let z = not x\n"
+        "}\n"
+    )
+    ast = parse_program(src)
+    fn = ast.statements[0]
+    assert isinstance(fn, FuncDef)
+    stmt_and = fn.body.statements[0]
+    assert isinstance(stmt_and, LetDecl)
+    assert isinstance(stmt_and.value, Binary)
+    assert stmt_and.value.op == "and"
+    stmt_or = fn.body.statements[1]
+    assert isinstance(stmt_or, LetDecl)
+    assert isinstance(stmt_or.value, Binary)
+    assert stmt_or.value.op == "or"
+    stmt_not = fn.body.statements[2]
+    assert isinstance(stmt_not, LetDecl)
+    assert isinstance(stmt_not.value, Unary)
+    assert stmt_not.value.op == "not"
 
 
 def test_parse_assignment_expr() -> None:
