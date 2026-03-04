@@ -285,6 +285,7 @@ class Compiler:
         raise NotImplementedError(f"expr not supported: {type(expr).__name__}")
 
     def coerce_i32(self, value: ir.Value) -> ir.Value:
+        assert self.builder is not None
         if value.type == self.i32:
             return value
         if value.type == self.i1:
@@ -292,6 +293,7 @@ class Compiler:
         raise NotImplementedError("unsupported type coercion to i32")
 
     def coerce_i1(self, value: ir.Value) -> ir.Value:
+        assert self.builder is not None
         if value.type == self.i1:
             return value
         if value.type == self.i32:
@@ -299,6 +301,7 @@ class Compiler:
         raise NotImplementedError("unsupported type coercion to i1")
 
     def coerce(self, value: ir.Value, target: ir.Type) -> ir.Value:
+        assert self.builder is not None
         if value.type == target:
             return value
         if target == self.i32:
@@ -324,6 +327,7 @@ class Compiler:
         raise NotImplementedError("zero value for type not supported")
 
     def compile_string_literal(self, value: str) -> ir.Value:
+        assert self.builder is not None
         encoded = value.encode("utf-8") + b"\x00"
         const_type = ir.ArrayType(self.i8, len(encoded))
         const_val = ir.Constant(const_type, bytearray(encoded))
@@ -455,6 +459,7 @@ class Compiler:
         enum_info = self.enum_defs.get(member.obj.name)
         if enum_info is None:
             raise NotImplementedError(f"unknown enum {member.obj.name}")
+        assert self.builder is not None
         variant = enum_info.variants.get(member.name)
         if variant is None:
             raise NotImplementedError(f"unknown variant {member.name} for {member.obj.name}")
@@ -503,6 +508,7 @@ class Compiler:
         return obj_ptr
 
     def compile_member_load(self, member: Member) -> ir.Value:
+        assert self.builder is not None
         obj = self.compile_expr(member.obj)
         class_info = self.class_types.get(obj.type)
         if class_info is None:
@@ -512,6 +518,7 @@ class Compiler:
         return self.builder.load(ptr)
 
     def compile_member_store(self, member: Member, value: ir.Value) -> None:
+        assert self.builder is not None
         obj = self.compile_expr(member.obj)
         class_info = self.class_types.get(obj.type)
         if class_info is None:
@@ -521,6 +528,7 @@ class Compiler:
         self.builder.store(self.coerce(value, class_info.struct_type.elements[field_index]), ptr)
 
     def compile_method_call(self, member: "Member", args: list["CallArg"]) -> ir.Value:
+        assert self.builder is not None
         if member.name != "format":
             receiver = self.compile_expr(member.obj)
             class_info = self.class_types.get(receiver.type)
@@ -758,7 +766,7 @@ def emit_object(module: ir.Module) -> bytes:
 
     target = binding.Target.from_default_triple()
     target_machine = target.create_target_machine()
-    return target_machine.emit_object(llvm_module)
+    return bytes(target_machine.emit_object(llvm_module))
 
 
 def build_executable(module: ir.Module, output_path: Path) -> None:

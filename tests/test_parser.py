@@ -5,6 +5,7 @@ from parser import (
     Call,
     ClassDef,
     EnumDef,
+    ExprStmt,
     FromImportStmt,
     FuncDef,
     IfStmt,
@@ -29,6 +30,7 @@ def test_parse_hello() -> None:
     assert fn.name == "main"
     assert fn.body.statements
     call_stmt = fn.body.statements[0]
+    assert isinstance(call_stmt, ExprStmt)
     assert isinstance(call_stmt.expr, Call)
 
 
@@ -105,7 +107,9 @@ def test_parse_assignment_expr() -> None:
     src = "def main() { x = 1 }"
     ast = parse_program(src)
     fn = ast.statements[0]
+    assert isinstance(fn, FuncDef)
     expr_stmt = fn.body.statements[0]
+    assert isinstance(expr_stmt, ExprStmt)
     assert isinstance(expr_stmt.expr, Assign)
     assert isinstance(expr_stmt.expr.target, Var)
     assert isinstance(expr_stmt.expr.value, Literal)

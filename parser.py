@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Any, Optional
+from typing import Any, Generator, Optional, cast
 
 import parsy
 
 
 # === AST ===
+
+Parser = parsy.Parser[Any]
 
 
 @dataclass(frozen=True)
@@ -240,11 +242,11 @@ newline = parsy.regex(r"\n+")
 semi = parsy.string(";")
 
 
-def lexeme(p: parsy.Parser) -> parsy.Parser:
+def lexeme(p: Parser) -> Parser:
     return line_ws >> p << line_ws
 
 
-def kw(text: str) -> parsy.Parser:
+def kw(text: str) -> Parser:
     pattern = rf"{re.escape(text)}(?![A-Za-z0-9_])"
     return lexeme(parsy.regex(pattern)).result(text)
 
@@ -261,7 +263,7 @@ floating = lexeme(
 
 
 @parsy.generate
-def string_lit() -> Any:
+def string_lit() -> Generator[Parser, Any, Any]:
     yield line_ws
     yield parsy.string('"')
     body = yield parsy.regex(r'([^"\\]|\\.)*')
@@ -282,31 +284,31 @@ literal = (
 stmt_sep = (line_ws >> (semi | newline)).at_least(1).map(lambda _: None)
 
 
-def parens(p: parsy.Parser) -> parsy.Parser:
+def parens(p: Parser) -> Parser:
     return lexeme(parsy.string("(")) >> p << lexeme(parsy.string(")"))
 
 
-def braces(p: parsy.Parser) -> parsy.Parser:
+def braces(p: Parser) -> Parser:
     return lexeme(parsy.string("{")) >> p << lexeme(parsy.string("}"))
 
 
-def comma_sep(p: parsy.Parser) -> parsy.Parser:
+def comma_sep(p: Parser) -> Parser:
     return p.sep_by(lexeme(parsy.string(",")))
 
 
 # === Forward declarations ===
 
 
-type_expr = parsy.forward_declaration()
-expr = parsy.forward_declaration()
-stmt = parsy.forward_declaration()
+type_expr: Parser = parsy.forward_declaration()
+expr: Parser = parsy.forward_declaration()
+stmt: Parser = parsy.forward_declaration()
 
 
 # === Types ===
 
 
 @parsy.generate
-def type_param() -> TypeParam:
+def type_param() -> Generator[Parser, Any, TypeParam]:
     name = yield ident
     bound = yield (lexeme(parsy.string(":")) >> type_expr).optional()
     return TypeParam(name, bound)
@@ -320,7 +322,7 @@ type_params = (
 
 
 @parsy.generate
-def named_type() -> TypeExpr:
+def named_type() -> Generator[Parser, Any, TypeExpr]:
     name = yield ident
     args = yield (
         lexeme(parsy.string("<")) >> comma_sep(type_expr) << lexeme(parsy.string(">"))
@@ -335,7 +337,7 @@ type_expr.become(named_type)
 
 
 @parsy.generate
-def match_expr() -> Expr:
+def match_expr() -> Generator[Parser, Any, Expr]:
     yield kw("match")
     subject = yield expr
     arms = yield braces(
@@ -347,7 +349,7 @@ def match_expr() -> Expr:
 
 
 @parsy.generate
-def pattern() -> Pattern:
+def pattern() -> Generator[Parser, Any, Pattern]:
     wildcard = yield kw("_").optional()
     if wildcard is not None:
         return WildcardPattern()
@@ -364,7 +366,7 @@ def pattern() -> Pattern:
 
 
 @parsy.generate
-def match_arm() -> MatchArm:
+def match_arm() -> Generator[Parser, Any, MatchArm]:
     pat = yield pattern
     yield lexeme(parsy.string("=>"))
     value = yield expr
@@ -372,22 +374,22 @@ def match_arm() -> MatchArm:
 
 
 @parsy.generate
-def primary_expr() -> Expr:
+def primary_expr() -> Generator[Parser, Any, Expr]:
     if_expr = yield match_expr.optional()
     if if_expr is not None:
-        return if_expr
+        return cast(Expr, if_expr)
     lit = yield literal.optional()
     if lit is not None:
-        return lit
+        return cast(Expr, lit)
     name = yield ident.optional()
     if name is not None:
         return Var(name)
     grouped = yield parens(expr)
-    return grouped
+    return cast(Expr, grouped)
 
 
 @parsy.generate
-def call_expr() -> Expr:
+def call_expr() -> Generator[Parser, Any, Expr]:
     value = yield primary_expr
     while True:
         member = yield (lexeme(parsy.string(".")) >> ident).optional()
@@ -401,11 +403,11 @@ def call_expr() -> Expr:
             value = Call(value, args)
             continue
         break
-    return value
+    return cast(Expr, value)
 
 
 @parsy.generate
-def arg() -> CallArg:
+def arg() -> Generator[Parser, Any, CallArg]:
     name = yield (ident << lexeme(parsy.string("="))).optional()
     if name is not None:
         value = yield expr
@@ -414,9 +416,9 @@ def arg() -> CallArg:
     return CallArg(None, value)
 
 
-def infix_left(operand: parsy.Parser, ops: parsy.Parser) -> parsy.Parser:
+def infix_left(operand: Parser, ops: Parser) -> Parser:
     @parsy.generate
-    def parser() -> Expr:
+    def parser() -> Generator[Parser, Any, Expr]:
         left = yield operand
         while True:
             op = yield ops.optional()
@@ -424,7 +426,7 @@ def infix_left(operand: parsy.Parser, ops: parsy.Parser) -> parsy.Parser:
                 break
             right = yield operand
             left = Binary(op, left, right)
-        return left
+        return cast(Expr, left)
 
     return parser
 
@@ -435,12 +437,12 @@ unary_ops = lexeme(parsy.string("!")) | lexeme(parsy.string("+")) | lexeme(
 
 
 @parsy.generate
-def unary_expr() -> Expr:
+def unary_expr() -> Generator[Parser, Any, Expr]:
     op = yield unary_ops.optional()
     if op is not None:
         value = yield unary_expr
         return Unary(op, value)
-    return (yield call_expr)
+    return cast(Expr, (yield call_expr))
 
 
 mul_expr = infix_left(
@@ -464,10 +466,10 @@ or_expr = infix_left(and_expr, lexeme(parsy.string("||")))
 
 
 @parsy.generate
-def assign_expr() -> Expr:
+def assign_expr() -> Generator[Parser, Any, Expr]:
     left = yield or_expr
     if (yield lexeme(parsy.string("=")).optional()) is None:
-        return left
+        return cast(Expr, left)
     right = yield assign_expr
     return Assign(left, right)
 
@@ -479,14 +481,14 @@ expr.become(assign_expr)
 
 
 @parsy.generate
-def block() -> Block:
+def block() -> Generator[Parser, Any, Block]:
     stmts = yield braces(stmt_sep.optional() >> stmt.sep_by(stmt_sep) << stmt_sep.optional())
     return Block(stmts)
 
 
-def let_decl(is_const: bool, is_export: bool) -> parsy.Parser:
+def let_decl(is_const: bool, is_export: bool) -> Parser:
     @parsy.generate
-    def parser() -> LetDecl:
+    def parser() -> Generator[Parser, Any, LetDecl]:
         yield kw("const" if is_const else "let")
         name = yield ident
         type_annotation = yield (lexeme(parsy.string(":")) >> type_expr).optional()
@@ -498,16 +500,16 @@ def let_decl(is_const: bool, is_export: bool) -> parsy.Parser:
 
 
 @parsy.generate
-def param() -> Param:
+def param() -> Generator[Parser, Any, Param]:
     name = yield ident
     type_annotation = yield (lexeme(parsy.string(":")) >> type_expr).optional()
     default = yield (lexeme(parsy.string("=")) >> expr).optional()
     return Param(name, type_annotation, default)
 
 
-def func_def(is_export: bool) -> parsy.Parser:
+def func_def(is_export: bool) -> Parser:
     @parsy.generate
-    def parser() -> FuncDef:
+    def parser() -> Generator[Parser, Any, FuncDef]:
         yield kw("def")
         name = yield ident
         tparams = yield type_params.optional(default=[])
@@ -520,16 +522,16 @@ def func_def(is_export: bool) -> parsy.Parser:
 
 
 @parsy.generate
-def field_decl() -> FieldDecl:
+def field_decl() -> Generator[Parser, Any, FieldDecl]:
     name = yield ident
     yield lexeme(parsy.string(":"))
     texpr = yield type_expr
     return FieldDecl(name, texpr)
 
 
-def class_def(is_export: bool) -> parsy.Parser:
+def class_def(is_export: bool) -> Parser:
     @parsy.generate
-    def parser() -> ClassDef:
+    def parser() -> Generator[Parser, Any, ClassDef]:
         yield kw("class")
         name = yield ident
         tparams = yield type_params.optional(default=[])
@@ -552,15 +554,15 @@ def class_def(is_export: bool) -> parsy.Parser:
 
 
 @parsy.generate
-def enum_variant() -> EnumVariant:
+def enum_variant() -> Generator[Parser, Any, EnumVariant]:
     name = yield ident
     fields = yield parens(comma_sep(type_expr)).optional(default=[])
     return EnumVariant(name, fields)
 
 
-def enum_def(is_export: bool) -> parsy.Parser:
+def enum_def(is_export: bool) -> Parser:
     @parsy.generate
-    def parser() -> EnumDef:
+    def parser() -> Generator[Parser, Any, EnumDef]:
         yield kw("enum")
         name = yield ident
         tparams = yield type_params.optional(default=[])
@@ -575,14 +577,14 @@ def enum_def(is_export: bool) -> parsy.Parser:
 
 
 @parsy.generate
-def return_stmt() -> ReturnStmt:
+def return_stmt() -> Generator[Parser, Any, ReturnStmt]:
     yield kw("return")
     value = yield expr.optional()
     return ReturnStmt(value)
 
 
 @parsy.generate
-def if_stmt() -> IfStmt:
+def if_stmt() -> Generator[Parser, Any, IfStmt]:
     yield kw("if")
     cond = yield expr
     then_block = yield block
@@ -591,14 +593,14 @@ def if_stmt() -> IfStmt:
 
 
 @parsy.generate
-def import_stmt() -> ImportStmt:
+def import_stmt() -> Generator[Parser, Any, ImportStmt]:
     yield kw("import")
     path = yield string_lit
     return ImportStmt(path)
 
 
 @parsy.generate
-def from_import_stmt() -> FromImportStmt:
+def from_import_stmt() -> Generator[Parser, Any, FromImportStmt]:
     yield kw("from")
     path = yield string_lit
     yield kw("import")
@@ -607,13 +609,13 @@ def from_import_stmt() -> FromImportStmt:
 
 
 @parsy.generate
-def expr_stmt() -> ExprStmt:
+def expr_stmt() -> Generator[Parser, Any, ExprStmt]:
     value = yield expr
     return ExprStmt(value)
 
 
 @parsy.generate
-def export_stmt() -> Stmt:
+def export_stmt() -> Generator[Parser, Any, Stmt]:
     yield kw("export")
     exportable = yield (
         func_def(True)
@@ -622,7 +624,7 @@ def export_stmt() -> Stmt:
         | let_decl(False, True)
         | let_decl(True, True)
     )
-    return exportable
+    return cast(Stmt, exportable)
 
 
 class_member = (field_decl | func_def(False))
@@ -652,5 +654,4 @@ program = (
 
 
 def parse_program(text: str) -> Program:
-    return program.parse(text)
-
+    return cast(Program, program.parse(text))

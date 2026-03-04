@@ -5,9 +5,12 @@ import operator
 import re
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Callable, FrozenSet
+from typing import Any, Callable, FrozenSet, Generic, Iterable, TypeVar
 
 __version__ = "2.2"
+
+T = TypeVar("T")
+U = TypeVar("U")
 
 noop = lambda x: x
 
@@ -86,7 +89,7 @@ class Result:
 # type Stream = str | bytes | list
 
 
-class Parser:
+class Parser(Generic[T]):
     """
     A Parser is an object that wraps a function whose arguments are
     a string to be parsed and the index on which to begin parsing.
@@ -104,7 +107,7 @@ class Parser:
         """
         self.wrapped_fn = wrapped_fn
 
-    def __call__(self, stream: str | bytes | list, index: int) -> Any:
+    def __call__(self, stream: str | bytes | list, index: int) -> Result:
         return self.wrapped_fn(stream, index)
 
     def parse(self, stream: str | bytes | list) -> Any:
@@ -421,6 +424,9 @@ class Parser:
     def __lshift__(self, other: Parser) -> Parser:
         return self.skip(other)
 
+    def become(self, other: "Parser") -> None:
+        raise NotImplementedError("become is only supported on forward declarations")
+
 
 def alt(*parsers: Parser) -> Parser:
     """
@@ -723,7 +729,7 @@ def from_enum(enum_cls: type[enum.Enum], transform=noop) -> Parser:
     )
 
 
-class forward_declaration(Parser):
+class forward_declaration(Parser[Any]):
     """
     An empty parser that can be used as a forward declaration,
     especially for parsers that need to be defined recursively.
@@ -731,10 +737,10 @@ class forward_declaration(Parser):
     You must use `.become(parser)` before using.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
-    def _raise_error(self, *args, **kwargs):
+    def _raise_error(self, *args: Any, **kwargs: Any) -> None:
         raise ValueError(
             "You must use 'become' before attempting to call `parse` or `parse_partial`"
         )
@@ -742,7 +748,7 @@ class forward_declaration(Parser):
     parse = _raise_error
     parse_partial = _raise_error
 
-    def become(self, other: Parser):
+    def become(self, other: Parser) -> None:
         """
         Take on the behavior of the given parser.
         """
