@@ -1,0 +1,28 @@
+# Result type for error handling with error values
+
+enum Result<T, E> {
+    Ok(T)
+    Err(E)
+}
+
+def safe_div(a: int, b: int) -> Result<int, int> {
+    if b == 0 {
+        return Result.Err(-1)
+    }
+    return Result.Ok(a / b)
+}
+
+def main() {
+    let good = safe_div(10, 2)
+    let bad = safe_div(10, 0)
+
+    match good {
+        Ok(value) => print(value)
+        Err(code) => print(code)
+    }
+
+    match bad {
+        Ok(value) => print(value)
+        Err(code) => print(code)
+    }
+}
