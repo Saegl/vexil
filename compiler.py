@@ -17,6 +17,7 @@ from parser import (
     ClassDef,
     ConstructorPattern,
     EnumDef,
+    EnumVariant,
     Expr,
     ExprStmt,
     FieldDecl,
@@ -59,6 +60,8 @@ class Compiler:
         self.string_id = 0
         self.enum_defs: dict[str, EnumInfo] = {}
         self.enum_types: dict[ir.Type, EnumInfo] = {}
+        self.enum_defs_by_key: dict[tuple[str, tuple[ir.Type, ...]], EnumInfo] = {}
+        self.enum_ast_defs: dict[str, EnumDef] = {}
         self.current_return_type: ir.Type | None = None
         self.class_defs: dict[str, ClassInfo] = {}
         self.class_types: dict[ir.Type, ClassInfo] = {}
@@ -126,15 +129,23 @@ class Compiler:
                         raise NotImplementedError("unknown return type")
                     self.builder.ret(self.zero_for_type(self.current_return_type))
                 else:
-                    value = self.compile_expr(stmt.value)
+                    value = self.compile_expr_with_expected(
+                        stmt.value, self.current_return_type
+                    )
                     assert self.current_return_type is not None
                     self.builder.ret(self.coerce(value, self.current_return_type))
             elif isinstance(stmt, LetDecl):
-                value = self.compile_expr(stmt.value)
-                slot = self.builder.alloca(value.type, name=stmt.name)
-                self.builder.store(self.coerce(value, value.type), slot)
+                expected_type = (
+                    self.type_from_typeexpr(stmt.type_expr)
+                    if stmt.type_expr is not None
+                    else None
+                )
+                value = self.compile_expr_with_expected(stmt.value, expected_type)
+                slot_type = expected_type or value.type
+                slot = self.builder.alloca(slot_type, name=stmt.name)
+                self.builder.store(self.coerce(value, slot_type), slot)
                 self.allocas[stmt.name] = slot
-                self.var_types[stmt.name] = value.type
+                self.var_types[stmt.name] = slot_type
             elif isinstance(stmt, IfStmt):
                 self.compile_if(stmt)
             elif isinstance(stmt, ExprStmt):
@@ -153,6 +164,11 @@ class Compiler:
                     self.compile_block(stmt.else_block)
 
     def compile_expr(self, expr: Expr) -> ir.Value:
+        return self.compile_expr_with_expected(expr, None)
+
+    def compile_expr_with_expected(
+        self, expr: Expr, expected_type: ir.Type | None
+    ) -> ir.Value:
         assert self.builder is not None
         if isinstance(expr, Literal):
             if isinstance(expr.value, bool):
@@ -229,14 +245,18 @@ class Compiler:
                 )
             raise NotImplementedError(f"binary op {expr.op}")
         if isinstance(expr, Assign):
-            value = self.compile_expr(expr.value)
+            target_type = None
+            if isinstance(expr.target, Var):
+                target_type = self.var_types.get(expr.target.name)
+            value = self.compile_expr_with_expected(expr.value, target_type)
             if isinstance(expr.target, Var):
                 slot = self.allocas.get(expr.target.name)
                 if slot is None:
                     slot = self.builder.alloca(value.type, name=expr.target.name)
                     self.allocas[expr.target.name] = slot
                     self.var_types[expr.target.name] = value.type
-                self.builder.store(self.coerce(value, value.type), slot)
+                store_type = self.var_types.get(expr.target.name, value.type)
+                self.builder.store(self.coerce(value, store_type), slot)
                 return value
             if isinstance(expr.target, Member):
                 self.compile_member_store(expr.target, value)
@@ -286,7 +306,9 @@ class Compiler:
                 return self.builder.call(callee, coerced_args)
             if isinstance(expr.func, Member):
                 if self.is_enum_constructor(expr.func):
-                    return self.compile_enum_constructor(expr.func, expr.args)
+                    return self.compile_enum_constructor(
+                        expr.func, expr.args, expected_type
+                    )
                 return self.compile_method_call(expr.func, expr.args)
             raise NotImplementedError("only direct function calls are supported")
         if isinstance(expr, MatchExpr):
@@ -435,14 +457,20 @@ class Compiler:
             )
         return callee
 
-    def type_from_typeexpr(self, type_expr: TypeExpr | None) -> ir.Type:
+    def type_from_typeexpr(
+        self,
+        type_expr: TypeExpr | None,
+        type_params: dict[str, ir.Type] | None = None,
+    ) -> ir.Type:
         if type_expr is None:
             return self.i32
         if isinstance(type_expr, NamedType):
-            if type_expr.args:
-                raise NotImplementedError(
-                    "generic types are not supported in the backend"
-                )
+            if (
+                type_params is not None
+                and not type_expr.args
+                and type_expr.name in type_params
+            ):
+                return type_params[type_expr.name]
             if type_expr.name == "int":
                 return self.i32
             if type_expr.name == "bool":
@@ -451,8 +479,18 @@ class Compiler:
                 return self.i8.as_pointer()
             if type_expr.name == "float":
                 return self.f64
-            enum_info = self.enum_defs.get(type_expr.name)
-            if enum_info is not None:
+            if type_expr.args:
+                arg_types = [
+                    self.type_from_typeexpr(arg, type_params) for arg in type_expr.args
+                ]
+                if type_expr.name in self.enum_ast_defs:
+                    enum_info = self.get_enum_info(type_expr.name, arg_types)
+                    return enum_info.ir_type
+                raise NotImplementedError(
+                    "generic types are not supported in the backend"
+                )
+            if type_expr.name in self.enum_ast_defs:
+                enum_info = self.get_enum_info(type_expr.name, None)
                 return enum_info.ir_type
             class_info = self.class_defs.get(type_expr.name)
             if class_info is not None:
@@ -460,12 +498,22 @@ class Compiler:
         raise NotImplementedError(f"unsupported type {type_expr}")
 
     def register_enum(self, enum_def: EnumDef) -> None:
+        self.enum_ast_defs[enum_def.name] = enum_def
+        if enum_def.type_params:
+            return
+        info = self.instantiate_enum(enum_def, {})
+        self.enum_defs[enum_def.name] = info
+        self.enum_types[info.ir_type] = info
+
+    def instantiate_enum(
+        self, enum_def: EnumDef, type_params: dict[str, ir.Type]
+    ) -> EnumInfo:
         variants: dict[str, VariantInfo] = {}
         max_arity = 0
         for idx, variant in enumerate(enum_def.variants):
             field_types: list[ir.Type] = []
             for field in variant.fields:
-                field_type = self.type_from_typeexpr(field)
+                field_type = self.type_from_typeexpr(field, type_params)
                 if not self.is_supported_enum_field_type(field_type):
                     raise NotImplementedError(
                         "enum fields support only int/bool/float/string/class pointers"
@@ -476,9 +524,74 @@ class Compiler:
                 max_arity = len(field_types)
 
         ir_type = ir.LiteralStructType([self.i32] + [self.i64] * max_arity)
-        info = EnumInfo(name=enum_def.name, ir_type=ir_type, variants=variants)
-        self.enum_defs[enum_def.name] = info
-        self.enum_types[ir_type] = info
+        return EnumInfo(name=enum_def.name, ir_type=ir_type, variants=variants)
+
+    def get_enum_info(
+        self, name: str, arg_types: list[ir.Type] | None
+    ) -> EnumInfo:
+        enum_def = self.enum_ast_defs.get(name)
+        if enum_def is None:
+            raise NotImplementedError(f"unknown enum {name}")
+        if not enum_def.type_params:
+            if arg_types is not None:
+                raise NotImplementedError(
+                    "type arguments are not supported for non-generic enums"
+                )
+            info = self.enum_defs.get(name)
+            if info is None:
+                info = self.instantiate_enum(enum_def, {})
+                self.enum_defs[name] = info
+                self.enum_types[info.ir_type] = info
+            return info
+        if arg_types is None:
+            info = self.enum_defs.get(name)
+            if info is not None:
+                return info
+            raise NotImplementedError("generic enum requires type arguments")
+        if len(arg_types) != len(enum_def.type_params):
+            raise NotImplementedError("generic enum type argument count mismatch")
+        key = (name, tuple(arg_types))
+        info = self.enum_defs_by_key.get(key)
+        if info is not None:
+            return info
+        type_params = {
+            param.name: arg
+            for param, arg in zip(enum_def.type_params, arg_types, strict=False)
+        }
+        info = self.instantiate_enum(enum_def, type_params)
+        self.enum_defs_by_key[key] = info
+        self.enum_defs.setdefault(name, info)
+        self.enum_types[info.ir_type] = info
+        return info
+
+    def get_enum_info_for_constructor(
+        self,
+        enum_def: EnumDef,
+        variant_def: EnumVariant,
+        arg_values: list[ir.Value],
+        expected_type: ir.Type | None,
+    ) -> EnumInfo:
+        if expected_type is not None:
+            expected_enum = self.enum_types.get(expected_type)
+            if expected_enum is not None:
+                return expected_enum
+        if not enum_def.type_params:
+            return self.get_enum_info(enum_def.name, None)
+        param_names = {param.name for param in enum_def.type_params}
+        inferred: dict[str, ir.Type] = {}
+        for field, arg in zip(variant_def.fields, arg_values, strict=False):
+            if (
+                isinstance(field, NamedType)
+                and not field.args
+                and field.name in param_names
+            ):
+                inferred[field.name] = arg.type
+        if len(inferred) != len(enum_def.type_params):
+            raise NotImplementedError(
+                "cannot infer generic enum type; add a type annotation"
+            )
+        arg_types = [inferred[param.name] for param in enum_def.type_params]
+        return self.get_enum_info(enum_def.name, arg_types)
 
     def register_class(self, class_def: ClassDef) -> None:
         fields: list[FieldInfo] = []
@@ -505,22 +618,39 @@ class Compiler:
             self.compile_function(method, method_of=info)
 
     def is_enum_constructor(self, member: Member) -> bool:
-        return isinstance(member.obj, Var) and member.obj.name in self.enum_defs
+        return isinstance(member.obj, Var) and member.obj.name in self.enum_ast_defs
 
-    def compile_enum_constructor(self, member: Member, args: list[CallArg]) -> ir.Value:
+    def compile_enum_constructor(
+        self,
+        member: Member,
+        args: list[CallArg],
+        expected_type: ir.Type | None,
+    ) -> ir.Value:
         if not isinstance(member.obj, Var):
             raise NotImplementedError("enum constructor must be Enum.Variant")
-        enum_info = self.enum_defs.get(member.obj.name)
-        if enum_info is None:
+        enum_def = self.enum_ast_defs.get(member.obj.name)
+        if enum_def is None:
             raise NotImplementedError(f"unknown enum {member.obj.name}")
         assert self.builder is not None
-        variant = enum_info.variants.get(member.name)
-        if variant is None:
+        variant_def = next(
+            (variant for variant in enum_def.variants if variant.name == member.name),
+            None,
+        )
+        if variant_def is None:
             raise NotImplementedError(
                 f"unknown variant {member.name} for {member.obj.name}"
             )
-        if len(args) != variant.arity:
+        if len(args) != len(variant_def.fields):
             raise NotImplementedError("enum constructor arity mismatch")
+
+        arg_values = [self.compile_expr(arg.value) for arg in args]
+        enum_info = self.get_enum_info_for_constructor(
+            enum_def,
+            variant_def,
+            arg_values,
+            expected_type,
+        )
+        variant = enum_info.variants[variant_def.name]
 
         value = ir.Constant(enum_info.ir_type, ir.Undefined)
         value = self.builder.insert_value(value, self.i32(variant.tag), 0)
@@ -528,7 +658,7 @@ class Compiler:
         for idx in range(enum_info.max_payload):
             if idx < variant.arity:
                 field_type = variant.fields[idx]
-                coerced = self.coerce(self.compile_expr(args[idx].value), field_type)
+                coerced = self.coerce(arg_values[idx], field_type)
                 arg_val = self.pack_enum_payload(coerced)
             else:
                 arg_val = self.i64(0)

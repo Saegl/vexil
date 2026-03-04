@@ -1,11 +1,11 @@
 # Option-based error handling for safe division
 
-enum Option {
-    Some(float)
+enum Option<T> {
+    Some(T)
     None
 }
 
-def safe_div(a: float, b: float) -> Option {
+def safe_div(a: float, b: float) -> Option<float> {
     if b == 0.0 {
         return Option.None()
     }
