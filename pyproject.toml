@@ -8,6 +8,22 @@ dependencies = [
     "llvmlite>=0.43.0",
 ]
 
+[project.scripts]
+vexil = "vexil:main"
+
+[build-system]
+requires = ["hatchling>=1.24.0"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
+[tool.hatch.build.targets.wheel]
+include = ["vexil.py", "compiler.py", "parser.py", "runtime.c"]
+
+[tool.hatch.build.targets.sdist]
+include = ["vexil.py", "compiler.py", "parser.py", "runtime.c", "examples", "tests", "grammar.ebnf", "README.md"]
+
 [dependency-groups]
 dev = [
     "mypy>=1.15.0",
